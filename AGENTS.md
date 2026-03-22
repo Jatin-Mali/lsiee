@@ -110,3 +110,15 @@
 - Verified Phase 8 incrementally with `venv/bin/python -m py_compile ...`, `venv/bin/pytest tests/unit/test_temporal_intelligence.py tests/unit/test_detection.py tests/unit/test_indexer.py -q`, and `venv/bin/pytest tests/integration/test_cli.py -q`; all passed.
 - Verified the broader repo state after Phase 8 with `venv/bin/python scripts/verify_installation.py` and full `venv/bin/pytest -q`.
 - Final Phase 8 verification result before commit: all 68 tests passed with 80% total coverage, installation verification passed, and the new temporal-intelligence coverage was green.
+- Committed and pushed Phase 8 as `c376998` with message `Complete Phase 8 event logging and correlation`, and created/pushed tag `v0.9.0`.
+- Started Phase 9 from the clean post-push state, re-checked the guide requirements, and confirmed `lsiee/temporal_intelligence/explanation/` was still empty while `lsiee explain` remained a placeholder in the CLI.
+- Implemented `lsiee/temporal_intelligence/explanation/root_cause.py` with `RootCauseAnalyzer`, `EvidenceGatherer`, `RecommendationEngine`, and timestamp parsing for CLI use.
+- Updated `lsiee/temporal_intelligence/explanation/__init__.py` and `lsiee/temporal_intelligence/__init__.py` so the new root-cause analysis surface is exported from the package.
+- Replaced the Week 11 placeholder in `lsiee/cli.py` with a real `lsiee explain` command supporting free-form issue text plus `--time` in ISO-8601 or raw epoch format.
+- Added Phase 9 unit coverage in `tests/unit/test_root_cause.py` for synthetic slowdown diagnosis and context-aware recommendations.
+- Expanded CLI integration coverage in `tests/integration/test_cli.py` to exercise `lsiee explain "system slowdown" --time ...` and verify root-cause plus recommendation output.
+- Extended `lsiee/config.py` with a temporal explanation-window default so the explanation time range is configurable.
+- Ran `venv/bin/python -m black` on all touched Phase 9 Python files after implementation.
+- Verified Phase 9 incrementally with `venv/bin/python -m py_compile ...` and `venv/bin/pytest tests/unit/test_root_cause.py tests/integration/test_cli.py -q`; both passed.
+- Verified the broader repo state after Phase 9 with `venv/bin/python scripts/verify_installation.py` and full `venv/bin/pytest -q`.
+- Final Phase 9 verification result before commit: all 71 tests passed with 80% total coverage, installation verification passed, and the new explanation flow was green.

@@ -273,3 +273,65 @@ def test_monitor_detect_anomalies_and_show_alerts(temp_environment, monkeypatch)
     assert alert_result.exit_code == 0
     assert "Anomaly Alerts" in alert_result.output
     assert "anomaly_detected" in alert_result.output
+
+
+def test_explain_command_reports_root_causes(temp_environment):
+    """The explain CLI should render root causes and recommendations."""
+    incident_time = 1_700_000_000.0
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        conn.executemany(
+            """
+            INSERT INTO process_snapshots
+            (timestamp, pid, name, exe_path, cmdline, cpu_percent, memory_mb,
+             memory_percent, io_read_bytes, io_write_bytes, status, num_threads,
+             create_time, parent_pid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    incident_time - 30,
+                    4242,
+                    "backup.exe",
+                    "/usr/bin/backup",
+                    "backup --run",
+                    96.0,
+                    2048.0,
+                    82.0,
+                    10_000,
+                    15_000,
+                    "running",
+                    24,
+                    incident_time - 600,
+                    1,
+                ),
+                (
+                    incident_time - 3600,
+                    4242,
+                    "backup.exe",
+                    "/usr/bin/backup",
+                    "backup --run",
+                    88.0,
+                    1500.0,
+                    70.0,
+                    8_000,
+                    9_000,
+                    "running",
+                    20,
+                    incident_time - 4200,
+                    1,
+                ),
+            ],
+        )
+        conn.commit()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["explain", "system slowdown", "--time", str(incident_time)],
+    )
+
+    assert result.exit_code == 0
+    assert "Root Causes" in result.output
+    assert "backup.exe" in result.output
+    assert "Recommendations" in result.output

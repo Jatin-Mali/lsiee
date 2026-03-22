@@ -86,6 +86,7 @@ class Config:
                 "pattern_sequence_min_count": 2,
                 "pattern_burst_window_seconds": 30.0,
                 "pattern_burst_min_events": 5,
+                "explanation_window_seconds": 300.0,
             },
         }
 

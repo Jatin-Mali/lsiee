@@ -30,6 +30,8 @@ from lsiee.system_observability.monitoring import (
     spawn_background_daemon,
     stop_background_daemon,
 )
+from lsiee.temporal_intelligence.explanation import RootCauseAnalyzer
+from lsiee.temporal_intelligence.explanation.root_cause import parse_issue_timestamp
 
 console = Console()
 logging.basicConfig(level=logging.INFO)
@@ -502,10 +504,46 @@ def monitor(
 
 @main.command()
 @click.argument("issue")
-def explain(issue):
-    """Explain system issues (Coming in Week 11!)."""
-    console.print(f"[yellow]🚧 Explain feature coming in Week 11![/yellow]")
-    console.print(f"Issue: {issue}")
+@click.option("--time", "issue_time", default=None, help="Incident timestamp (ISO-8601 or epoch)")
+def explain(issue, issue_time):
+    """Explain system issues and provide recommendations."""
+    analyzer = RootCauseAnalyzer(db_path=get_db_path())
+
+    try:
+        timestamp = parse_issue_timestamp(issue_time)
+        explanation = analyzer.explain_issue(issue, timestamp)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise click.Abort() from exc
+
+    console.print(f"[bold]Issue:[/bold] {explanation['issue']}")
+    console.print(
+        "[bold]Time:[/bold] "
+        f"{datetime.fromtimestamp(explanation['timestamp']).isoformat(timespec='seconds')}"
+    )
+    console.print()
+
+    console.print("[bold]Root Causes:[/bold]")
+    for cause in explanation["root_causes"]:
+        console.print(f"  - {cause}")
+    console.print()
+
+    console.print("[bold]Evidence:[/bold]")
+    for evidence in explanation["evidence"]:
+        if evidence["type"] == "process_metrics":
+            count = len(evidence.get("processes", []))
+        elif evidence["type"] == "events":
+            count = len(evidence.get("events", []))
+        elif evidence["type"] == "correlations":
+            count = len(evidence.get("correlations", []))
+        else:
+            count = len(evidence.get("occurrences", []))
+        console.print(f"  - {evidence['type']}: {count} item(s)")
+    console.print()
+
+    console.print("[bold]Recommendations:[/bold]")
+    for recommendation in explanation["recommendations"]:
+        console.print(f"  - {recommendation}")
 
 
 def _print_process_table(processes, title):
