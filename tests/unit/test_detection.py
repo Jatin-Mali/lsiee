@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from lsiee.storage.schemas import initialize_database
 from lsiee.system_observability.detection import (
     AlertManager,

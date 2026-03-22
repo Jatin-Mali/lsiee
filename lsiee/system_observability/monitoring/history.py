@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-import sqlite3
 from typing import Any, Dict, List, Tuple
 
 from lsiee.storage.schemas import configure_connection

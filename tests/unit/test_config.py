@@ -1,13 +1,14 @@
 """Tests for configuration module."""
 
-import pytest
 from lsiee.config import Config
+
 
 def test_config_creation(temp_dir, monkeypatch):
     """Test configuration creation."""
     monkeypatch.setenv("HOME", str(temp_dir))
     config = Config()
     assert config.get("search.default_result_limit") == 10
+
 
 def test_config_set_get(temp_dir, monkeypatch):
     """Test setting and getting configuration values."""

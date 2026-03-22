@@ -1,7 +1,7 @@
 """Integration tests for CLI."""
 
-import sqlite3
 import shutil
+import sqlite3
 import tempfile
 import time
 from pathlib import Path

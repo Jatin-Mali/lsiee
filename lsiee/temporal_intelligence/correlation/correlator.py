@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 import logging
-from pathlib import Path
 import sqlite3
 import time
+from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from lsiee.config import get_db_path

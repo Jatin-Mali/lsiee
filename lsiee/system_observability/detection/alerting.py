@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsiee.config import config, get_db_path
@@ -80,10 +80,7 @@ class AlertManager:
                     "type": "anomaly_detected",
                     "source": "anomaly_detector",
                     "severity": severity,
-                    "message": (
-                        f"Anomalous behavior detected for {prediction.get('process_name', '<unknown>')} "
-                        f"(PID {prediction.get('pid')}, score {anomaly_score:.4f})"
-                    ),
+                    "message": self._format_anomaly_message(prediction, anomaly_score),
                     "pid": prediction.get("pid"),
                     "process_name": prediction.get("process_name"),
                     "anomaly_score": anomaly_score,
@@ -92,6 +89,16 @@ class AlertManager:
 
         self.alert_history.extend(alerts)
         return alerts
+
+    @staticmethod
+    def _format_anomaly_message(prediction: Dict[str, Any], anomaly_score: float) -> str:
+        """Build a readable anomaly message."""
+        process_name = prediction.get("process_name", "<unknown>")
+        pid = prediction.get("pid")
+        return (
+            f"Anomalous behavior detected for {process_name} "
+            f"(PID {pid}, score {anomaly_score:.4f})"
+        )
 
     def log_alert(self, alert: Dict[str, Any]):
         """Persist a single alert into the events table."""

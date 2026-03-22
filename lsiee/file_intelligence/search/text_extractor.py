@@ -1,8 +1,8 @@
 """Extract text from various file types."""
 
-from pathlib import Path
-from typing import Optional, List
 import logging
+from pathlib import Path
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

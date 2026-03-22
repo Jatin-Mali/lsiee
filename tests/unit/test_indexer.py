@@ -1,7 +1,5 @@
 """Tests for indexing refresh behavior."""
 
-from datetime import datetime
-
 from lsiee.file_intelligence.indexing.indexer import Indexer
 from lsiee.storage.metadata_db import MetadataDB
 from lsiee.storage.schemas import initialize_database

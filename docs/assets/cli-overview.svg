@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">LSIEE CLI Overview</title>
+  <desc id="desc">Illustrated terminal-style snapshot of LSIEE commands and outputs.</desc>
+  <rect width="960" height="520" rx="20" fill="#10151c"/>
+  <rect x="25" y="25" width="910" height="470" rx="16" fill="#16202a" stroke="#2f3d4d"/>
+  <circle cx="60" cy="52" r="8" fill="#ff6b6b"/>
+  <circle cx="86" cy="52" r="8" fill="#ffd166"/>
+  <circle cx="112" cy="52" r="8" fill="#06d6a0"/>
+  <text x="145" y="58" font-family="Courier New, monospace" font-size="18" fill="#d9e2ec">lsiee demo session</text>
+  <text x="50" y="105" font-family="Courier New, monospace" font-size="22" fill="#8bd3dd">$ python -m lsiee index ./data --no-progress</text>
+  <text x="50" y="140" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">✓ Indexing complete</text>
+  <text x="50" y="178" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">Files Indexed: 2   Search Indexed: 2   Errors: 0</text>
+  <text x="50" y="232" font-family="Courier New, monospace" font-size="22" fill="#8bd3dd">$ python -m lsiee search "bug fixes"</text>
+  <text x="50" y="267" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">1. release_notes.txt   Similarity: 78.40%</text>
+  <text x="50" y="305" font-family="Courier New, monospace" font-size="22" fill="#8bd3dd">$ python -m lsiee query ./data/sales.csv "sum of revenue"</text>
+  <text x="50" y="340" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">Results: 450.0</text>
+  <text x="50" y="394" font-family="Courier New, monospace" font-size="22" fill="#8bd3dd">$ python -m lsiee explain "system slowdown"</text>
+  <text x="50" y="429" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">Root Causes: High CPU usage from backup.exe</text>
+  <text x="50" y="462" font-family="Courier New, monospace" font-size="20" fill="#f7f7f7">Recommendations: Review correlated events, reschedule heavy jobs</text>
+</svg>

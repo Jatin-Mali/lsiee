@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
 import logging
+from collections import defaultdict, deque
 from typing import Any, Deque, Dict, Iterable, List
 
 import numpy as np

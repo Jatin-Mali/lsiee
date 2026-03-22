@@ -1,12 +1,12 @@
 """Main indexing coordinator."""
 
+import logging
 from pathlib import Path
 from typing import Optional
-import logging
 
-from lsiee.file_intelligence.indexing.scanner import DirectoryScanner
-from lsiee.storage.metadata_db import MetadataDB, FileRecord
 from lsiee.config import config, get_db_path
+from lsiee.file_intelligence.indexing.scanner import DirectoryScanner
+from lsiee.storage.metadata_db import FileRecord, MetadataDB
 
 logger = logging.getLogger(__name__)
 

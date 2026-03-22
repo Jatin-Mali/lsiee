@@ -6,13 +6,13 @@ import argparse
 import atexit
 import logging
 import os
-from pathlib import Path
 import signal
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Iterable, Optional
 
 from lsiee.config import config, get_db_path

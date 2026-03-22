@@ -1,7 +1,7 @@
 """Detect schema of structured data files."""
 
-from pathlib import Path
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd

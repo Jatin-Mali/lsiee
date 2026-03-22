@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">LSIEE Architecture Diagram</title>
+  <desc id="desc">CLI connected to file intelligence, system observability, temporal intelligence, SQLite, and vector storage.</desc>
+  <rect width="960" height="520" fill="#f7f4ec"/>
+  <rect x="360" y="30" width="240" height="70" rx="14" fill="#1f3a5f"/>
+  <text x="480" y="73" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#ffffff">LSIEE CLI</text>
+  <rect x="70" y="150" width="240" height="120" rx="16" fill="#f0b429"/>
+  <text x="190" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#1f1f1f">File Intelligence</text>
+  <text x="190" y="230" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#1f1f1f">Indexing, search, parsing, query</text>
+  <rect x="360" y="150" width="240" height="120" rx="16" fill="#2e8b57"/>
+  <text x="480" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">System Observability</text>
+  <text x="480" y="230" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">Monitoring, history, anomalies</text>
+  <rect x="650" y="150" width="240" height="120" rx="16" fill="#c65d3b"/>
+  <text x="770" y="195" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">Temporal Intelligence</text>
+  <text x="770" y="230" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">Events, correlation, explanation</text>
+  <rect x="180" y="340" width="250" height="100" rx="16" fill="#4f6d7a"/>
+  <text x="305" y="385" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">SQLite Database</text>
+  <text x="305" y="415" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">files, process_snapshots, events, correlations</text>
+  <rect x="530" y="340" width="250" height="100" rx="16" fill="#7d5a50"/>
+  <text x="655" y="385" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ffffff">Vector Store</text>
+  <text x="655" y="415" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">TF-IDF document representations</text>
+  <path d="M480 100 L190 150" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M480 100 L480 150" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M480 100 L770 150" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M190 270 L305 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M240 270 L655 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M480 270 L305 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M480 270 L655 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M770 270 L305 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+  <path d="M770 270 L655 340" stroke="#1f3a5f" stroke-width="4" fill="none"/>
+</svg>

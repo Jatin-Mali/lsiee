@@ -103,7 +103,10 @@ class QueryExecutor:
         lowered = query_text.lower()
 
         group_match = re.search(
-            r"\b(sum|average|avg|mean|max|min|count)\b(?:\s+of)?\s+([\w\s]+?)\s+\bby\b\s+([\w\s]+)$",
+            (
+                r"\b(sum|average|avg|mean|max|min|count)\b(?:\s+of)?\s+"
+                r"([\w\s]+?)\s+\bby\b\s+([\w\s]+)$"
+            ),
             lowered,
         )
         if group_match:

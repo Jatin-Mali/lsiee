@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-import sqlite3
 from typing import Any, Dict, List, Optional
 
 from lsiee.config import config, get_db_path
@@ -287,7 +287,8 @@ class RootCauseAnalyzer:
                 )
             if float(hottest.get("max_memory_percent", 0.0) or 0.0) >= 80.0:
                 explanation["root_causes"].append(
-                    f"High memory pressure from {hottest['name']} (peak {hottest['max_memory_percent']:.1f}%)"
+                    "High memory pressure from "
+                    f"{hottest['name']} (peak {hottest['max_memory_percent']:.1f}%)"
                 )
 
         events = evidence_bundle["events"]
@@ -300,7 +301,8 @@ class RootCauseAnalyzer:
                 counts = Counter(event["event_type"] for event in important_events)
                 dominant_event, occurrences = counts.most_common(1)[0]
                 explanation["root_causes"].append(
-                    f"Warning-level activity included {dominant_event} ({occurrences} nearby event(s))"
+                    "Warning-level activity included "
+                    f"{dominant_event} ({occurrences} nearby event(s))"
                 )
 
         correlations = evidence_bundle["correlations"]
@@ -317,7 +319,8 @@ class RootCauseAnalyzer:
         if historical:
             explanation["evidence"].append({"type": "historical", "occurrences": historical})
             explanation["root_causes"].append(
-                f"Similar {issue_type.replace('_', ' ')} symptoms occurred {len(historical)} time(s) before"
+                "Similar "
+                f"{issue_type.replace('_', ' ')} symptoms occurred {len(historical)} time(s) before"
             )
 
         if not explanation["root_causes"]:

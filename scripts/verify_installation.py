@@ -2,7 +2,6 @@
 """Verify LSIEE installation."""
 
 import sys
-from pathlib import Path
 
 
 def check_python():

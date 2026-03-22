@@ -1,10 +1,10 @@
 """Metadata database access layer."""
 
 import sqlite3
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Iterable
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
 
 from lsiee.storage.schemas import configure_connection
 
@@ -67,10 +67,10 @@ class MetadataDB:
         """
         cursor = self.conn.execute(
             """
-            INSERT INTO files (path, filename, extension, size_bytes, modified_at, 
+            INSERT INTO files (path, filename, extension, size_bytes, modified_at,
                              content_hash, index_status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
+            """,
             (
                 file_record.path,
                 file_record.filename,
@@ -175,10 +175,10 @@ class MetadataDB:
         """
         self.conn.execute(
             """
-            UPDATE files 
+            UPDATE files
             SET index_status = ?, index_error = ?
             WHERE id = ?
-        """,
+            """,
             (status, error, file_id),
         )
         self.conn.commit()
@@ -252,13 +252,13 @@ class MetadataDB:
             Dictionary with statistics
         """
         cursor = self.conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_files,
                 SUM(size_bytes) as total_size,
                 COUNT(CASE WHEN index_status = 'indexed' THEN 1 END) as indexed_count,
                 COUNT(CASE WHEN index_status = 'failed' THEN 1 END) as failed_count
             FROM files
-        """)
+            """)
 
         row = cursor.fetchone()
         return {

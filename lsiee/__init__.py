@@ -7,4 +7,12 @@ A local-first system intelligence platform.
 __version__ = "1.0.0"
 __author__ = "LSIEE Contributors"
 
-from lsiee import file_intelligence, system_observability, temporal_intelligence
+from . import file_intelligence, system_observability, temporal_intelligence
+
+__all__ = [
+    "__version__",
+    "__author__",
+    "file_intelligence",
+    "system_observability",
+    "temporal_intelligence",
+]

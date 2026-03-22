@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from lsiee.config import get_db_path
