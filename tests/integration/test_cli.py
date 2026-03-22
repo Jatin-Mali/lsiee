@@ -121,6 +121,37 @@ def test_inspect_json_command_with_path(tmp_path, temp_environment):
     assert "Alice" in result.output
 
 
+def test_query_command_returns_scalar_result(tmp_path, temp_environment):
+    """Test query command for scalar aggregations."""
+    filepath = tmp_path / "ages.csv"
+    filepath.write_text("age\n20\n30\n40\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["query", str(filepath), "average age"])
+
+    assert result.exit_code == 0
+    assert "Results" in result.output
+    assert "30.0" in result.output
+
+
+def test_query_command_exports_results(tmp_path, temp_environment):
+    """Test query command exporting filtered rows."""
+    filepath = tmp_path / "sales.csv"
+    export_path = tmp_path / "results.csv"
+    filepath.write_text("amount,region\n100,east\n250,west\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["query", str(filepath), "filter amount > 150", "--export", str(export_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Exported to" in result.output
+    assert export_path.exists()
+    assert "250" in export_path.read_text(encoding="utf-8")
+
+
 def test_monitor_placeholder():
     """Test monitor placeholder."""
     runner = CliRunner()

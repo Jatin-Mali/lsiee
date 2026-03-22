@@ -9,6 +9,8 @@ from rich.table import Table
 
 from lsiee.config import config, get_db_path, get_vector_db_path
 from lsiee.file_intelligence.data_extraction.parsers import StructuredDataParser
+from lsiee.file_intelligence.data_extraction.query_executor import QueryExecutor
+from lsiee.file_intelligence.data_extraction.result_formatter import ResultFormatter
 from lsiee.file_intelligence.data_extraction.schema_detector import SchemaDetector
 from lsiee.file_intelligence.indexing.embedding_indexer import EmbeddingIndexer
 from lsiee.file_intelligence.indexing.indexer import Indexer
@@ -255,6 +257,43 @@ def _print_schema_table(schema, title="Schema"):
         )
 
     console.print(table)
+
+
+@main.command()
+@click.argument("filepath", type=click.Path(exists=True))
+@click.argument("query")
+@click.option("--export", type=click.Path(), help="Export results to a file")
+def query(filepath, query, export):
+    """Query structured data files using natural language."""
+    executor = QueryExecutor()
+    formatter = ResultFormatter()
+    filepath = Path(filepath)
+
+    console.print(f"[blue]Querying:[/blue] {filepath}")
+    console.print(f"[blue]Query:[/blue] {query}")
+    console.print()
+
+    result = executor.execute_query_safe(filepath, query)
+    if "error" in result:
+        console.print(f"[red]✗ Error:[/red] {result['error']}")
+        raise click.Abort()
+
+    console.print("[green]Results:[/green]")
+    payload = result["result"]
+
+    if isinstance(payload, (int, float)):
+        console.print(payload)
+    elif isinstance(payload, dict):
+        console.print(JSON.from_data(payload))
+    else:
+        console.print(formatter.format_table(payload))
+
+    if export:
+        export_path = Path(export)
+        export_format = "json" if export_path.suffix.lower() == ".json" else "csv"
+        formatter.export_to_file(payload, export_path, format=export_format)
+        console.print()
+        console.print(f"[green]Exported to:[/green] {export_path}")
 
 
 @main.command()

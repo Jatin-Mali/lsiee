@@ -46,3 +46,14 @@
 - Expanded CLI integration tests to cover `inspect` on CSV files and JSON path extraction.
 - Verified Week 3 with targeted parser tests, targeted CLI tests, and the full suite in `venv`.
 - Final Week 3 verification result: `venv/bin/pytest -v` passed with 35 tests green and 80% total coverage.
+- Re-read the Week 4 implementation guide before making changes and reviewed the current data-extraction surface to confirm the query workflow was still unimplemented.
+- Re-verified the local Week 3 worktree in `venv`, then committed Week 3 as `1c5472a` with message `Complete Week 3 structured data inspection`.
+- Created `query_executor.py` for safe natural-language tabular queries over CSV and Excel files, including filter, sum, average, count, group-by, sort, and read-only execution.
+- Created `result_formatter.py` for table rendering plus CSV/JSON export of query results.
+- Updated `lsiee/file_intelligence.data_extraction.__init__` exports for the new Week 4 query components.
+- Added a real `lsiee query` CLI command with natural-language execution and optional export output.
+- Added Week 4 unit coverage in `tests/unit/test_query.py` for filtering, aggregation, group-by, string matching, error handling, export formatting, and timeout handling.
+- Expanded CLI integration tests to cover scalar query output and exported query results.
+- Ran targeted syntax checks, targeted Week 4 unit tests, targeted CLI tests, full `venv/bin/pytest -q`, and `venv/bin/python scripts/verify_installation.py`.
+- Found and fixed a Week 4 safety bug during full-suite verification where `execute_query_safe` left `SIGALRM` armed on the timeout path, causing pytest to exit with code `142` after tests completed.
+- Final Week 4 verification result: `venv/bin/pytest -q` passed with 45 tests green and 80% total coverage, and `scripts/verify_installation.py` passed in `venv`.
