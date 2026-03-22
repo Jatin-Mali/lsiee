@@ -80,6 +80,13 @@ class Config:
                 "memory_threshold": 80.0,
                 "anomaly_score_threshold": -0.5,
             },
+            "temporal_intelligence": {
+                "correlation_window_seconds": 60.0,
+                "correlation_min_support": 0.01,
+                "pattern_sequence_min_count": 2,
+                "pattern_burst_window_seconds": 30.0,
+                "pattern_burst_min_events": 5,
+            },
         }
 
     def save(self):

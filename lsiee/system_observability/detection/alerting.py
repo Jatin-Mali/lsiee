@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from lsiee.config import config, get_db_path
 from lsiee.storage.schemas import configure_connection, initialize_database
+from lsiee.temporal_intelligence.events import EventLogger
 
 
 class AlertManager:
@@ -31,6 +32,7 @@ class AlertManager:
         self.alert_history: List[Dict[str, Any]] = []
         schema = initialize_database(self.db_path)
         schema.disconnect()
+        self.event_logger = EventLogger(self.db_path)
 
     def check_thresholds(
         self,
@@ -94,46 +96,40 @@ class AlertManager:
     def log_alert(self, alert: Dict[str, Any]):
         """Persist a single alert into the events table."""
         payload = dict(alert)
-        timestamp = float(payload.pop("timestamp", time.time()))
+        event_type = payload.pop("type", "anomaly_alert")
         source = payload.pop("source", "anomaly_detector")
         severity = str(payload.pop("severity", "INFO")).upper()
-        event_type = payload.pop("type", "anomaly_alert")
-
-        with sqlite3.connect(self.db_path) as conn:
-            configure_connection(conn)
-            conn.execute(
-                """
-                INSERT INTO events (timestamp, event_type, source, data, severity)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (timestamp, event_type, source, json.dumps(payload), severity),
-            )
-            conn.commit()
+        timestamp = float(payload.pop("timestamp", time.time()))
+        self.event_logger.log_event(
+            event_type=event_type,
+            source=source,
+            data=payload,
+            severity=severity,
+            tags=["system_observability", "anomaly_detection"],
+            related_process_id=payload.get("pid"),
+            timestamp=timestamp,
+        )
 
     def log_alerts(self, alerts: List[Dict[str, Any]]):
         """Persist multiple alerts into the events table."""
-        rows = []
-        for alert in alerts:
-            payload = dict(alert)
-            timestamp = float(payload.pop("timestamp", time.time()))
-            source = payload.pop("source", "anomaly_detector")
-            severity = str(payload.pop("severity", "INFO")).upper()
-            event_type = payload.pop("type", "anomaly_alert")
-            rows.append((timestamp, event_type, source, json.dumps(payload), severity))
-
-        if not rows:
-            return
-
-        with sqlite3.connect(self.db_path) as conn:
-            configure_connection(conn)
-            conn.executemany(
-                """
-                INSERT INTO events (timestamp, event_type, source, data, severity)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
-            conn.commit()
+        self.event_logger.log_events(
+            [
+                {
+                    "timestamp": float(alert.get("timestamp", time.time())),
+                    "event_type": alert.get("type", "anomaly_alert"),
+                    "source": alert.get("source", "anomaly_detector"),
+                    "severity": str(alert.get("severity", "INFO")).upper(),
+                    "data": {
+                        key: value
+                        for key, value in alert.items()
+                        if key not in {"timestamp", "type", "source", "severity"}
+                    },
+                    "tags": ["system_observability", "anomaly_detection"],
+                    "related_process_id": alert.get("pid"),
+                }
+                for alert in alerts
+            ]
+        )
 
     def get_recent_alerts(self, hours: int = 24, limit: int = 20) -> List[Dict[str, Any]]:
         """Return recently logged anomaly alerts."""

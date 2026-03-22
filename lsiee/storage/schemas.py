@@ -166,6 +166,11 @@ class DatabaseSchema:
                 avg_delay_seconds REAL
             )
         """)
+        self.conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_correlations_pair
+            ON correlations(event_type_a, event_type_b)
+            """)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_correlations_lift ON correlations(lift)")
 
 
 def initialize_database(db_path: Path) -> DatabaseSchema:

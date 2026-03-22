@@ -18,6 +18,7 @@ from typing import Iterable, Optional
 from lsiee.config import config, get_db_path
 from lsiee.storage.schemas import configure_connection, initialize_database
 from lsiee.system_observability.monitoring.process_monitor import ProcessMonitor
+from lsiee.temporal_intelligence.events import EventLogger
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class MonitoringDaemon:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self.event_logger = EventLogger(self.db_path)
         self._ensure_database()
 
     def start(self, blocking: bool = False, iterations: Optional[int] = None):
@@ -80,6 +82,12 @@ class MonitoringDaemon:
 
         self.running = True
         self._stop_event.clear()
+        self.event_logger.log_event(
+            event_type="monitoring_started",
+            source="monitoring_daemon",
+            data={"interval_seconds": self.interval, "blocking": blocking},
+            tags=["system_observability", "monitoring"],
+        )
 
         if blocking:
             self._monitoring_loop(iterations=iterations)
@@ -119,6 +127,12 @@ class MonitoringDaemon:
                 self._stop_event.wait(self.interval)
         finally:
             self.running = False
+            self.event_logger.log_event(
+                event_type="monitoring_stopped",
+                source="monitoring_daemon",
+                data={"interval_seconds": self.interval, "iterations_collected": collected},
+                tags=["system_observability", "monitoring"],
+            )
 
     def _ensure_database(self):
         """Ensure the SQLite schema exists."""
