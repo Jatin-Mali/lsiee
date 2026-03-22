@@ -4,6 +4,7 @@
 import sys
 from pathlib import Path
 
+
 def check_python():
     """Check Python version."""
     version = sys.version_info
@@ -14,13 +15,11 @@ def check_python():
         print(f"✗ Python 3.10+ required, found {version.major}.{version.minor}")
         return False
 
+
 def check_dependencies():
     """Check if all required packages are installed."""
-    required = [
-        'click', 'rich', 'sentence_transformers', 'chromadb',
-        'pandas', 'psutil', 'watchdog', 'sklearn', 'statsmodels'
-    ]
-    
+    required = ["click", "rich", "sklearn", "pandas", "psutil", "watchdog", "statsmodels"]
+
     all_ok = True
     for package in required:
         try:
@@ -29,31 +28,30 @@ def check_dependencies():
         except ImportError:
             print(f"✗ {package} (MISSING)")
             all_ok = False
-    
+
     return all_ok
+
 
 def check_lsiee():
     """Check if LSIEE is importable."""
     try:
         import lsiee
+
         print(f"✓ lsiee {lsiee.__version__}")
         return True
     except ImportError as e:
         print(f"✗ lsiee (MISSING): {e}")
         return False
 
+
 def main():
     """Run all checks."""
     print("LSIEE Installation Verification")
     print("=" * 50)
     print()
-    
-    checks = [
-        check_python(),
-        check_dependencies(),
-        check_lsiee()
-    ]
-    
+
+    checks = [check_python(), check_dependencies(), check_lsiee()]
+
     print()
     if all(checks):
         print("✅ All checks passed! LSIEE is ready to use.")
@@ -63,5 +61,6 @@ def main():
         print("❌ Some checks failed. Please review errors above.")
         return 1
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

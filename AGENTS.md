@@ -1,0 +1,36 @@
+# Agent Activity Log
+
+## Initialization
+- Read initial user prompt.
+- Located implementation guide at `LSIEE_COMPLETE _IMPLEMENTATION.md`.
+- Created task checklist.
+- Searching for `schemas.py` implementation in the guide.
+- User instructed to skip Week 1 and start Week 2 directly.
+- Planning Week 2 implementation and reading guidelines.
+- Found `schemas.py` already populated correctly matching the guide.
+- Verified `schemas.py` by successfully running database initialization.
+- Committed `schemas.py` to git.
+- Sent completion and understanding report to user.
+- Created `embeddings.py` and `text_extractor.py` for Week 2 Section 2.1.
+- Verified syntax imports for `embeddings.py` and `text_extractor.py`.
+- Created `vector_db.py` for Section 2.2 using ChromaDB.
+- Created `semantic_search.py` and `embedding_indexer.py`.
+- Updated `cli.py` to add semantic search command.
+- Created `test_search.py` unit tests and currently verifying.
+- Switched to TF-IDF `sklearn` implementation due to underlying PyTorch import lags on this system.
+- Replaced `vector_db.py` with in-memory JSON to remove chromadb.
+- Updated `requirements.txt` to reflect the new TF-IDF implementation.
+- Re-read `LSIEE_COMPLETE _IMPLEMENTATION.md` with focus on the Week 2 search/indexing flow before making further changes.
+- Reviewed the current Week 2 code path (`embeddings.py`, `text_extractor.py`, `vector_db.py`, `semantic_search.py`, `embedding_indexer.py`, `cli.py`) plus related tests and Week 1 foundations.
+- Found interface drift after the transformer-to-TF-IDF migration: `SemanticSearch` still passed `model_name`, CLI tests still expected a placeholder search command, and database path overrides were not respected.
+- Found a TF-IDF consistency bug: indexed documents and search queries were being vectorized with different vocabularies, making stored vectors and query vectors incompatible across runs.
+- Started a Week 2 repair pass to unify path handling, make TF-IDF search deterministic, and connect semantic indexing into the CLI indexing flow.
+- Reworked the TF-IDF embedding flow to use a compatible `EmbeddingModel` API while keeping the lightweight fallback instead of transformers.
+- Updated semantic search storage so queries are scored against indexed document text with a shared TF-IDF vocabulary at search time.
+- Wired the CLI `index` command to build the semantic search store after metadata indexing and updated the `search` command to execute real Week 2 semantic search.
+- Added/updated Week 2 tests covering embeddings, chunking, vector ranking, empty search behavior, embedding indexing, CLI search, and relevant result ordering.
+- Updated config/path helpers so tests and CLI runs can respect `LSIEE_DB_PATH`, `LSIEE_VECTOR_DB_PATH`, and `LSIEE_CONFIG_DIR`.
+- Updated `scripts/verify_installation.py` to match the TF-IDF-based dependency set instead of the removed transformer/ChromaDB stack.
+- Formatted the touched Python files with `black` inside the project `venv`.
+- Verified Week 2 with `venv/bin/python scripts/verify_installation.py` and `venv/bin/pytest -v`.
+- Final verification result before commit: installation checks passed and all 22 tests passed with 82% total coverage.
