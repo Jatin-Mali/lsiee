@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from lsiee.config import config, get_db_path
-from lsiee.storage.schemas import initialize_database
+from lsiee.storage.schemas import configure_connection, initialize_database
 
 
 class AlertManager:
@@ -100,6 +100,7 @@ class AlertManager:
         event_type = payload.pop("type", "anomaly_alert")
 
         with sqlite3.connect(self.db_path) as conn:
+            configure_connection(conn)
             conn.execute(
                 """
                 INSERT INTO events (timestamp, event_type, source, data, severity)
@@ -111,14 +112,34 @@ class AlertManager:
 
     def log_alerts(self, alerts: List[Dict[str, Any]]):
         """Persist multiple alerts into the events table."""
+        rows = []
         for alert in alerts:
-            self.log_alert(alert)
+            payload = dict(alert)
+            timestamp = float(payload.pop("timestamp", time.time()))
+            source = payload.pop("source", "anomaly_detector")
+            severity = str(payload.pop("severity", "INFO")).upper()
+            event_type = payload.pop("type", "anomaly_alert")
+            rows.append((timestamp, event_type, source, json.dumps(payload), severity))
+
+        if not rows:
+            return
+
+        with sqlite3.connect(self.db_path) as conn:
+            configure_connection(conn)
+            conn.executemany(
+                """
+                INSERT INTO events (timestamp, event_type, source, data, severity)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
 
     def get_recent_alerts(self, hours: int = 24, limit: int = 20) -> List[Dict[str, Any]]:
         """Return recently logged anomaly alerts."""
         start_time = time.time() - (hours * 3600)
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            configure_connection(conn)
             cursor = conn.execute(
                 """
                 SELECT timestamp, event_type, source, data, severity

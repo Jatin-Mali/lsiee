@@ -7,6 +7,8 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Dict, List, Tuple
 
+from lsiee.storage.schemas import configure_connection
+
 
 class ProcessHistory:
     """Query historical process snapshot data."""
@@ -23,7 +25,7 @@ class ProcessHistory:
     ) -> List[Dict[str, Any]]:
         """Return historical rows for a process in the provided time range."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            configure_connection(conn)
             cursor = conn.execute(
                 """
                 SELECT * FROM process_snapshots
@@ -40,6 +42,7 @@ class ProcessHistory:
         start_time = (datetime.now() - timedelta(hours=hours)).timestamp()
 
         with sqlite3.connect(self.db_path) as conn:
+            configure_connection(conn)
             cursor = conn.execute(
                 """
                 SELECT timestamp, cpu_percent
@@ -56,7 +59,7 @@ class ProcessHistory:
         start_time = (datetime.now() - timedelta(hours=hours)).timestamp()
 
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            configure_connection(conn)
             cursor = conn.execute(
                 """
                 SELECT *

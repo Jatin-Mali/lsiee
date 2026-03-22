@@ -12,30 +12,35 @@ venv\Scripts\activate  # Windows
 ## Verify Installation
 
 ```bash
-lsiee --help
-lsiee status
-python scripts/verify_installation.py
+venv/bin/python scripts/verify_installation.py
+venv/bin/python -m lsiee --help
+venv/bin/python -m lsiee status
 ```
 
 ## Development Workflow
 
 ```bash
 # Run tests
-pytest
+venv/bin/pytest
 
 # Format code
-black lsiee/
-isort lsiee/
+venv/bin/python -m black lsiee tests
+venv/bin/python -m isort lsiee tests
 
 # Type checking
-mypy lsiee/
+venv/bin/python -m mypy lsiee/
 
 # Linting
-pylint lsiee/
+venv/bin/python -m pylint lsiee/
 ```
 
-## Start Coding
+## Current Commands
 
-Week 1: Implement file indexing in `lsiee/file_intelligence/indexing/`
+- `venv/bin/python -m lsiee index <directory>`
+- `venv/bin/python -m lsiee search "query"`
+- `venv/bin/python -m lsiee inspect <file>`
+- `venv/bin/python -m lsiee query <file> "natural language query"`
+- `venv/bin/python -m lsiee monitor --top-cpu`
+- `venv/bin/python -m lsiee monitor --detect-anomalies`
 
-Good luck building LSIEE! 🚀
+Phase 7 adds integration coverage, indexing fixes, and lightweight performance verification.

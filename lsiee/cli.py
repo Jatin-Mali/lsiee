@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.json import JSON
 from rich.table import Table
 
+from lsiee import __version__
 from lsiee.config import config, get_db_path, get_vector_db_path
 from lsiee.file_intelligence.data_extraction.parsers import StructuredDataParser
 from lsiee.file_intelligence.data_extraction.query_executor import QueryExecutor
@@ -35,7 +36,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=__version__)
 def main():
     """LSIEE - Local System Intelligence & Execution Engine
 
@@ -66,7 +67,7 @@ def index(directory, force, no_progress):
 
         # Run indexer
         indexer = Indexer(db_path=db_path)
-        stats = indexer.index_directory(directory_path, show_progress=not no_progress)
+        stats = indexer.index_directory(directory_path, show_progress=not no_progress, force=force)
         embedding_indexer = EmbeddingIndexer(
             db_path=db_path,
             vector_db_path=get_vector_db_path(),
@@ -85,6 +86,7 @@ def index(directory, force, no_progress):
         table.add_row("Files Discovered", str(stats["files_discovered"]))
         table.add_row("Files Indexed", str(stats["files_indexed"]))
         table.add_row("Files Updated", str(stats["files_updated"]))
+        table.add_row("Files Unchanged", str(stats.get("files_unchanged", 0)))
         table.add_row("Files Skipped", str(stats["files_skipped"]))
         table.add_row("Search Indexed", str(search_indexed))
         table.add_row("Errors", str(stats["errors"]))

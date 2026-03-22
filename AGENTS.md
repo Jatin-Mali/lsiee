@@ -84,3 +84,18 @@
 - Ran targeted syntax checks, targeted anomaly unit tests, and targeted CLI tests in `venv`.
 - Found the first real-time anomaly test was too conservative with model-only scoring on a short per-process rolling window, then fixed `RealtimeAnomalyDetector` to fall back to clear temporal spike detection against recent history.
 - Re-ran targeted verification after the fix: `venv/bin/pytest tests/unit/test_detection.py -q` and `venv/bin/pytest tests/integration/test_cli.py -q` both passed.
+- User requested Phase 7 next, so re-read `AGENTS.md` and the Phase 7 implementation guide sections for cross-domain testing, performance optimization, bug fixes, and documentation updates before editing.
+- Reviewed the current codebase and found a real indexing correctness bug: `Indexer.index_directory()` treated every existing file as "updated" and then skipped it, so changed files were never refreshed and unchanged files were misclassified.
+- Fixed the indexing pipeline in `lsiee/file_intelligence/indexing/indexer.py` to distinguish newly indexed, updated, and unchanged files, to honor the CLI `--force` option, and to use `get_db_path()` by default instead of hardcoding `~/.lsiee/lsiee.db`.
+- Extended `lsiee/storage/metadata_db.py` with batched inserts, batched updates, path-based lookups, and record refresh helpers so metadata indexing no longer commits one row at a time.
+- Updated SQLite setup in `lsiee/storage/schemas.py` to enable foreign keys, WAL mode, `synchronous=NORMAL`, and missing performance-oriented indexes for `process_snapshots.name` and `events.source`.
+- Applied the shared SQLite connection configuration to process history queries, monitoring snapshot storage, and anomaly alert logging so the optimized database settings are used consistently across domains.
+- Fixed the CLI version output in `lsiee/cli.py` to use the package `__version__` instead of the stale `0.1.0` literal, and updated the `index` command to pass `--force` through and display unchanged-file counts.
+- Added unit coverage in `tests/unit/test_indexer.py` for unchanged-file detection, modified-file refresh behavior, and forced re-indexing.
+- Added cross-domain integration coverage in `tests/integration/test_cross_domain.py` for indexing while monitoring, searching while monitoring, and an end-to-end workflow covering indexing, semantic search, monitoring history, anomaly detection, and alert logging together.
+- Added lightweight benchmark-style verification in `tests/performance/test_benchmarks.py` to check indexing throughput on a small corpus and to verify repeated indexing classifies files as unchanged quickly.
+- Updated `README.md` and `QUICK_START.md` to match the current CLI (`query` instead of `extract`), current `venv`-based workflow, and the implemented monitoring/anomaly commands.
+- Ran `venv/bin/python -m black` on all touched Python files after the Phase 7 changes.
+- Verified Phase 7 incrementally with `venv/bin/pytest tests/unit/test_indexer.py -q`, `venv/bin/pytest tests/integration/test_cross_domain.py -q`, and `venv/bin/pytest tests/performance/test_benchmarks.py -q`; all passed.
+- Verified the broader repo state with `venv/bin/python -m py_compile ...`, `venv/bin/pytest tests/integration/test_cli.py -q`, `venv/bin/python scripts/verify_installation.py`, and full `venv/bin/pytest -q`.
+- Final Phase 7 verification result before commit: all 64 tests passed with 78% total coverage, installation verification passed, and the new cross-domain and performance checks were green.

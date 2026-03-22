@@ -23,16 +23,17 @@ A local-first system intelligence platform that provides:
 git clone https://github.com/yourusername/lsiee.git
 cd lsiee
 
-# Run setup script
-./scripts/setup.sh
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ## Quick Start
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
 # Index your files
 lsiee index ~/Documents
 
@@ -42,21 +43,32 @@ lsiee search "quarterly budget reports"
 # Inspect structured data
 lsiee inspect data.xlsx
 
-# Extract data with natural language
-lsiee extract "total revenue by region" sales.xlsx
+# Query structured data with natural language
+lsiee query sales.xlsx "total revenue by region"
 
-# Monitor system
-lsiee monitor
+# Collect and inspect process activity
+lsiee monitor --top-cpu
+lsiee monitor --start --iterations 1
 
-# Analyze behavior
-lsiee explain "why is system slow"
+# Detect anomalies from stored history
+lsiee monitor --detect-anomalies
+lsiee monitor --alert-history
 ```
 
-## Documentation
+## Testing
 
-- [User Guide](docs/user_guide.md)
-- [Developer Guide](docs/developer_guide.md)
-- [Architecture](docs/architecture.md)
+```bash
+venv/bin/python scripts/verify_installation.py
+venv/bin/pytest -q
+```
+
+## Current Scope
+
+- File indexing and semantic search
+- Structured CSV/Excel/JSON inspection
+- Natural-language tabular querying
+- Process monitoring and stored history
+- Anomaly detection with persisted alerts
 
 ## License
 

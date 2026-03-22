@@ -16,7 +16,7 @@ import time
 from typing import Iterable, Optional
 
 from lsiee.config import config, get_db_path
-from lsiee.storage.schemas import initialize_database
+from lsiee.storage.schemas import configure_connection, initialize_database
 from lsiee.system_observability.monitoring.process_monitor import ProcessMonitor
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,7 @@ class MonitoringDaemon:
             return
 
         with sqlite3.connect(self.db_path) as conn:
+            configure_connection(conn)
             conn.executemany(
                 """
                 INSERT INTO process_snapshots
