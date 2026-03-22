@@ -57,3 +57,17 @@
 - Ran targeted syntax checks, targeted Week 4 unit tests, targeted CLI tests, full `venv/bin/pytest -q`, and `venv/bin/python scripts/verify_installation.py`.
 - Found and fixed a Week 4 safety bug during full-suite verification where `execute_query_safe` left `SIGALRM` armed on the timeout path, causing pytest to exit with code `142` after tests completed.
 - Final Week 4 verification result: `venv/bin/pytest -q` passed with 45 tests green and 80% total coverage, and `scripts/verify_installation.py` passed in `venv`.
+- Re-read the Week 5 implementation guide sections for process snapshots, daemon collection, system metrics, history tracking, and the `monitor` CLI before making changes.
+- Reviewed the current Week 5 code surface and confirmed `lsiee/system_observability/monitoring/` was still empty while `lsiee monitor` remained a placeholder.
+- Implemented `process_monitor.py` for live process snapshot capture with CPU, memory, status, thread count, parent PID, executable path, command line, and best-effort I/O counters.
+- Implemented `system_metrics.py` for CPU, memory, disk, and network usage collection.
+- Implemented `history.py` for querying stored process history and CPU timelines from SQLite.
+- Implemented `daemon.py` with `MonitoringDaemon`, bounded foreground iteration support for deterministic verification, detached background start/stop helpers, PID-file management, and snapshot persistence into `process_snapshots`.
+- Updated `lsiee/system_observability.monitoring.__init__` exports and `lsiee/system_observability.__init__` so the Week 5 monitoring surface is importable.
+- Replaced the CLI `monitor` placeholder with a real Week 5 command supporting live overview, `--top-cpu`, `--top-memory`, `--system`, `--process-name`, `--history-pid`, `--timeline`, `--status`, `--start`, `--stop`, `--interval`, and bounded `--iterations`.
+- Added Week 5 unit coverage in `tests/unit/test_monitoring.py` for live snapshots, system metrics, history queries, daemon storage, and stale PID-file cleanup.
+- Expanded CLI integration tests to cover `monitor --status`, `monitor --top-cpu`, and bounded collection followed by `monitor --history-pid`.
+- Ran targeted syntax checks, targeted Week 5 unit tests, targeted CLI tests, `venv/bin/python -m black` on touched files, full `venv/bin/pytest -q`, and `venv/bin/python scripts/verify_installation.py`.
+- Performed a manual detached-daemon smoke check in an isolated temp database and found stale PID-file handling could leave `monitor --status` pointing at a dead PID after an unexpected stop.
+- Fixed the Week 5 daemon status path to clean stale PID files automatically and switched detached process startup to `start_new_session=True`.
+- Final Week 5 verification result: `venv/bin/pytest -q` passed with 52 tests green and 75% total coverage, and `scripts/verify_installation.py` passed in `venv`.

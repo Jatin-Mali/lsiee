@@ -1,5 +1,6 @@
 """Integration tests for CLI."""
 
+import sqlite3
 import shutil
 import tempfile
 from pathlib import Path
@@ -152,10 +153,43 @@ def test_query_command_exports_results(tmp_path, temp_environment):
     assert "250" in export_path.read_text(encoding="utf-8")
 
 
-def test_monitor_placeholder():
-    """Test monitor placeholder."""
+def test_monitor_status_command(temp_environment):
+    """Test monitor status output."""
     runner = CliRunner()
-    result = runner.invoke(main, ["monitor"])
+    result = runner.invoke(main, ["monitor", "--status"])
 
     assert result.exit_code == 0
-    assert "Week 5" in result.output
+    assert "Monitoring Status" in result.output
+    assert "Stopped" in result.output
+
+
+def test_monitor_top_cpu_command(temp_environment):
+    """Test live top-CPU monitoring output."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["monitor", "--top-cpu", "--limit", "5"])
+
+    assert result.exit_code == 0
+    assert "Top CPU Processes" in result.output
+
+
+def test_monitor_start_and_history_commands(temp_environment):
+    """Test bounded monitoring collection and history lookup."""
+    runner = CliRunner()
+    start_result = runner.invoke(
+        main, ["monitor", "--start", "--iterations", "1", "--interval", "0.01"]
+    )
+
+    assert start_result.exit_code == 0
+    assert "Collected 1 monitoring iteration" in start_result.output
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        row = conn.execute(
+            "SELECT pid FROM process_snapshots ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+
+    assert row is not None
+
+    history_result = runner.invoke(main, ["monitor", "--history-pid", str(row[0]), "--hours", "1"])
+
+    assert history_result.exit_code == 0
+    assert "History for PID" in history_result.output

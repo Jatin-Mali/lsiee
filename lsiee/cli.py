@@ -1,8 +1,10 @@
 """LSIEE Command Line Interface."""
 
-import click
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
+
+import click
 from rich.console import Console
 from rich.json import JSON
 from rich.table import Table
@@ -17,6 +19,15 @@ from lsiee.file_intelligence.indexing.indexer import Indexer
 from lsiee.file_intelligence.search.semantic_search import SemanticSearch
 from lsiee.storage.metadata_db import MetadataDB
 from lsiee.storage.schemas import initialize_database
+from lsiee.system_observability.monitoring import (
+    MonitoringDaemon,
+    ProcessHistory,
+    ProcessMonitor,
+    SystemMetrics,
+    get_daemon_status,
+    spawn_background_daemon,
+    stop_background_daemon,
+)
 
 console = Console()
 logging.basicConfig(level=logging.INFO)
@@ -297,9 +308,130 @@ def query(filepath, query, export):
 
 
 @main.command()
-def monitor():
-    """Monitor system processes (Coming in Week 5!)."""
-    console.print("[yellow]🚧 Monitor feature coming in Week 5![/yellow]")
+@click.option("--start", "start_monitoring", is_flag=True, help="Start background monitoring")
+@click.option("--stop", "stop_monitoring", is_flag=True, help="Stop background monitoring")
+@click.option("--status", "show_status", is_flag=True, help="Show daemon status")
+@click.option("--top-cpu", is_flag=True, help="Show top CPU-consuming processes")
+@click.option("--top-memory", is_flag=True, help="Show top memory-consuming processes")
+@click.option("--system", "show_system", is_flag=True, help="Show system-wide metrics")
+@click.option("--process-name", default=None, help="Filter live processes by name")
+@click.option("--history-pid", type=int, default=None, help="Show recent stored history for a PID")
+@click.option("--timeline", default=None, help="Show stored CPU timeline for a process name")
+@click.option("--hours", default=24, show_default=True, help="History window in hours")
+@click.option("--limit", default=10, show_default=True, help="Maximum rows to display")
+@click.option("--interval", type=float, default=None, help="Monitoring interval in seconds")
+@click.option(
+    "--iterations",
+    type=int,
+    default=None,
+    help="Run a bounded number of monitoring iterations in the foreground",
+)
+def monitor(
+    start_monitoring,
+    stop_monitoring,
+    show_status,
+    top_cpu,
+    top_memory,
+    show_system,
+    process_name,
+    history_pid,
+    timeline,
+    hours,
+    limit,
+    interval,
+    iterations,
+):
+    """Monitor system processes and resource usage."""
+    db_path = get_db_path()
+    process_monitor = ProcessMonitor()
+    history = ProcessHistory(db_path)
+    metrics = SystemMetrics()
+
+    if interval is not None:
+        config.set("monitoring.interval_seconds", interval)
+
+    if start_monitoring:
+        if iterations is not None:
+            daemon = MonitoringDaemon(db_path=db_path, interval=interval)
+            daemon.start(blocking=True, iterations=iterations)
+            console.print(
+                f"[green]✓ Collected {iterations} monitoring iteration(s) into {db_path}[/green]"
+            )
+            return
+
+        pid = spawn_background_daemon(db_path=db_path, interval=interval)
+        config.set("monitoring.enabled", True)
+        console.print(f"[green]✓ Monitoring daemon started[/green] (PID: {pid})")
+        return
+
+    if stop_monitoring:
+        stopped = stop_background_daemon(db_path=db_path)
+        config.set("monitoring.enabled", False)
+        if stopped:
+            console.print("[green]✓ Monitoring daemon stopped[/green]")
+        else:
+            console.print("[yellow]No monitoring daemon was running[/yellow]")
+        return
+
+    if show_status:
+        status_info = get_daemon_status(db_path=db_path)
+        table = Table(title="Monitoring Status")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="magenta")
+        table.add_row("State", "Running" if status_info["running"] else "Stopped")
+        table.add_row("PID", str(status_info["pid"] or "-"))
+        table.add_row("DB Path", status_info["db_path"])
+        table.add_row("PID File", status_info["pid_path"])
+        table.add_row("Interval (s)", str(status_info["interval_seconds"]))
+        console.print(table)
+        return
+
+    if top_cpu:
+        _print_process_table(process_monitor.get_top_cpu(n=limit), title="Top CPU Processes")
+        return
+
+    if top_memory:
+        _print_process_table(
+            process_monitor.get_top_memory(n=limit),
+            title="Top Memory Processes",
+        )
+        return
+
+    if show_system:
+        _print_system_metrics(metrics.get_all_metrics())
+        return
+
+    if process_name:
+        matches = process_monitor.get_process_by_name(process_name)[:limit]
+        if not matches:
+            console.print(f"[yellow]No running processes matched '{process_name}'[/yellow]")
+            return
+        _print_process_table(matches, title=f"Processes Matching '{process_name}'")
+        return
+
+    if history_pid is not None:
+        end_time = datetime.now().timestamp()
+        start_time = (datetime.now() - timedelta(hours=hours)).timestamp()
+        rows = history.get_process_history(history_pid, start_time, end_time)
+        if not rows:
+            console.print(f"[yellow]No stored history found for PID {history_pid}[/yellow]")
+            return
+        _print_history_table(rows[:limit], title=f"History for PID {history_pid}")
+        return
+
+    if timeline:
+        rows = history.get_cpu_timeline(timeline, hours=hours)
+        if not rows:
+            console.print(f"[yellow]No stored CPU timeline found for '{timeline}'[/yellow]")
+            return
+        _print_timeline_table(rows[:limit], title=f"CPU Timeline: {timeline}")
+        return
+
+    console.print("[bold]Live Monitoring Overview[/bold]")
+    console.print()
+    _print_system_metrics(metrics.get_all_metrics())
+    console.print()
+    _print_process_table(process_monitor.get_top_cpu(n=limit), title="Top CPU Processes")
 
 
 @main.command()
@@ -308,6 +440,113 @@ def explain(issue):
     """Explain system issues (Coming in Week 11!)."""
     console.print(f"[yellow]🚧 Explain feature coming in Week 11![/yellow]")
     console.print(f"Issue: {issue}")
+
+
+def _print_process_table(processes, title):
+    """Render a process list as a Rich table."""
+    table = Table(title=title)
+    table.add_column("PID", style="cyan", justify="right")
+    table.add_column("Name", style="yellow")
+    table.add_column("CPU %", style="magenta", justify="right")
+    table.add_column("Memory MB", style="green", justify="right")
+    table.add_column("Status", style="blue")
+    table.add_column("Threads", style="white", justify="right")
+
+    for proc in processes:
+        table.add_row(
+            str(proc["pid"]),
+            str(proc["name"]),
+            f"{proc['cpu_percent']:.2f}",
+            f"{proc['memory_mb']:.2f}",
+            str(proc["status"]),
+            str(proc["num_threads"]),
+        )
+
+    console.print(table)
+
+
+def _print_system_metrics(metrics):
+    """Render system metrics tables."""
+    cpu = Table(title="CPU")
+    cpu.add_column("Metric", style="cyan")
+    cpu.add_column("Value", style="magenta")
+    cpu.add_row("Percent", f"{metrics['cpu']['percent']:.2f}")
+    cpu.add_row("Logical CPUs", str(metrics["cpu"]["count_logical"]))
+    cpu.add_row("Physical CPUs", str(metrics["cpu"]["count_physical"]))
+    cpu.add_row("Per CPU", ", ".join(f"{value:.1f}" for value in metrics["cpu"]["per_cpu"]))
+    console.print(cpu)
+
+    memory = Table(title="Memory")
+    memory.add_column("Metric", style="cyan")
+    memory.add_column("Value", style="magenta")
+    memory.add_row("Used GB", f"{metrics['memory']['used_gb']:.2f}")
+    memory.add_row("Available GB", f"{metrics['memory']['available_gb']:.2f}")
+    memory.add_row("Total GB", f"{metrics['memory']['total_gb']:.2f}")
+    memory.add_row("Percent", f"{metrics['memory']['percent']:.2f}")
+    memory.add_row("Swap Used GB", f"{metrics['memory']['swap_used_gb']:.2f}")
+    memory.add_row("Swap Percent", f"{metrics['memory']['swap_percent']:.2f}")
+    console.print(memory)
+
+    network = Table(title="Network")
+    network.add_column("Metric", style="cyan")
+    network.add_column("Value", style="magenta")
+    network.add_row("Bytes Sent", str(metrics["network"]["bytes_sent"]))
+    network.add_row("Bytes Received", str(metrics["network"]["bytes_recv"]))
+    network.add_row("Packets Sent", str(metrics["network"]["packets_sent"]))
+    network.add_row("Packets Received", str(metrics["network"]["packets_recv"]))
+    console.print(network)
+
+    disk = Table(title="Disk Partitions")
+    disk.add_column("Mount", style="cyan")
+    disk.add_column("Used %", style="magenta", justify="right")
+    disk.add_column("Used GB", style="yellow", justify="right")
+    disk.add_column("Free GB", style="green", justify="right")
+    for partition in metrics["disk"]["partitions"]:
+        disk.add_row(
+            partition["mountpoint"],
+            f"{partition['percent']:.2f}",
+            f"{partition['used_gb']:.2f}",
+            f"{partition['free_gb']:.2f}",
+        )
+    console.print(disk)
+
+
+def _print_history_table(rows, title):
+    """Render stored process history rows."""
+    table = Table(title=title)
+    table.add_column("Timestamp", style="cyan")
+    table.add_column("PID", style="yellow", justify="right")
+    table.add_column("Name", style="magenta")
+    table.add_column("CPU %", style="green", justify="right")
+    table.add_column("Memory MB", style="blue", justify="right")
+    table.add_column("Status", style="white")
+
+    for row in rows:
+        table.add_row(
+            datetime.fromtimestamp(row["timestamp"]).isoformat(timespec="seconds"),
+            str(row["pid"]),
+            str(row["name"]),
+            f"{row['cpu_percent']:.2f}",
+            f"{row['memory_mb']:.2f}",
+            str(row["status"]),
+        )
+
+    console.print(table)
+
+
+def _print_timeline_table(rows, title):
+    """Render CPU timeline points."""
+    table = Table(title=title)
+    table.add_column("Timestamp", style="cyan")
+    table.add_column("CPU %", style="magenta", justify="right")
+
+    for timestamp, cpu_percent in rows:
+        table.add_row(
+            datetime.fromtimestamp(timestamp).isoformat(timespec="seconds"),
+            f"{cpu_percent:.2f}",
+        )
+
+    console.print(table)
 
 
 if __name__ == "__main__":
