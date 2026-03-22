@@ -3,6 +3,7 @@
 import sqlite3
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -193,3 +194,82 @@ def test_monitor_start_and_history_commands(temp_environment):
 
     assert history_result.exit_code == 0
     assert "History for PID" in history_result.output
+
+
+def test_monitor_detect_anomalies_and_show_alerts(temp_environment, monkeypatch):
+    """The monitor CLI should detect anomalies and display stored alerts."""
+    now = time.time()
+    rows = [
+        (
+            now - (50 - index),
+            2000 + index,
+            "python",
+            "/usr/bin/python",
+            "python worker.py",
+            10.0 + (index % 3),
+            120.0 + index,
+            5.0 + (index % 4) * 0.2,
+            1000 + index * 10,
+            900 + index * 8,
+            "running",
+            4,
+            now - 1000,
+            1,
+        )
+        for index in range(40)
+    ]
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        conn.executemany(
+            """
+            INSERT INTO process_snapshots
+            (timestamp, pid, name, exe_path, cmdline, cpu_percent, memory_mb,
+             memory_percent, io_read_bytes, io_write_bytes, status, num_threads,
+             create_time, parent_pid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()
+
+    def fake_snapshot(self):
+        return [
+            {
+                "timestamp": now,
+                "pid": 9999,
+                "name": "stress-ng",
+                "exe_path": "/usr/bin/stress-ng",
+                "cmdline": "stress-ng --cpu 8",
+                "cpu_percent": 99.0,
+                "memory_mb": 2048.0,
+                "memory_percent": 92.0,
+                "io_read_bytes": 7_000_000,
+                "io_write_bytes": 9_000_000,
+                "status": "running",
+                "num_threads": 64,
+                "create_time": now - 30,
+                "parent_pid": 1,
+            }
+        ]
+
+    monkeypatch.setattr(
+        "lsiee.system_observability.monitoring.process_monitor.ProcessMonitor.capture_snapshot",
+        fake_snapshot,
+    )
+
+    runner = CliRunner()
+    detect_result = runner.invoke(
+        main, ["monitor", "--detect-anomalies", "--hours", "1", "--limit", "5"]
+    )
+
+    assert detect_result.exit_code == 0
+    assert "Detected Anomalies" in detect_result.output
+    assert "stress-ng" in detect_result.output
+
+    alert_result = runner.invoke(
+        main, ["monitor", "--alert-history", "--hours", "1", "--limit", "5"]
+    )
+
+    assert alert_result.exit_code == 0
+    assert "Anomaly Alerts" in alert_result.output
+    assert "anomaly_detected" in alert_result.output

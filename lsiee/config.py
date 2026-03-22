@@ -70,6 +70,16 @@ class Config:
             },
             "models": {"embedding_model": "all-MiniLM-L6-v2", "device": "cpu"},
             "monitoring": {"interval_seconds": 5, "enabled": False},
+            "anomaly_detection": {
+                "enabled": True,
+                "contamination": 0.1,
+                "min_training_samples": 25,
+                "history_window": 100,
+                "retrain_interval": 25,
+                "cpu_threshold": 80.0,
+                "memory_threshold": 80.0,
+                "anomaly_score_threshold": -0.5,
+            },
         }
 
     def save(self):

@@ -19,6 +19,7 @@ from lsiee.file_intelligence.indexing.indexer import Indexer
 from lsiee.file_intelligence.search.semantic_search import SemanticSearch
 from lsiee.storage.metadata_db import MetadataDB
 from lsiee.storage.schemas import initialize_database
+from lsiee.system_observability.detection import AlertManager, AnomalyDetector
 from lsiee.system_observability.monitoring import (
     MonitoringDaemon,
     ProcessHistory,
@@ -317,6 +318,8 @@ def query(filepath, query, export):
 @click.option("--process-name", default=None, help="Filter live processes by name")
 @click.option("--history-pid", type=int, default=None, help="Show recent stored history for a PID")
 @click.option("--timeline", default=None, help="Show stored CPU timeline for a process name")
+@click.option("--detect-anomalies", is_flag=True, help="Detect anomalies using recent history")
+@click.option("--alert-history", is_flag=True, help="Show recent logged anomaly alerts")
 @click.option("--hours", default=24, show_default=True, help="History window in hours")
 @click.option("--limit", default=10, show_default=True, help="Maximum rows to display")
 @click.option("--interval", type=float, default=None, help="Monitoring interval in seconds")
@@ -336,6 +339,8 @@ def monitor(
     process_name,
     history_pid,
     timeline,
+    detect_anomalies,
+    alert_history,
     hours,
     limit,
     interval,
@@ -346,6 +351,7 @@ def monitor(
     process_monitor = ProcessMonitor()
     history = ProcessHistory(db_path)
     metrics = SystemMetrics()
+    alert_manager = AlertManager(db_path=db_path)
 
     if interval is not None:
         config.set("monitoring.interval_seconds", interval)
@@ -425,6 +431,64 @@ def monitor(
             console.print(f"[yellow]No stored CPU timeline found for '{timeline}'[/yellow]")
             return
         _print_timeline_table(rows[:limit], title=f"CPU Timeline: {timeline}")
+        return
+
+    if detect_anomalies:
+        min_training_samples = int(config.get("anomaly_detection.min_training_samples", 25))
+        training_rows = history.get_recent_history(
+            hours=hours,
+            limit=max(limit * 20, min_training_samples),
+        )
+        if len(training_rows) < min_training_samples:
+            console.print(
+                "[yellow]Not enough stored history to train anomaly detector. "
+                f"Need {min_training_samples} rows, found {len(training_rows)}.[/yellow]"
+            )
+            return
+
+        detector = AnomalyDetector(
+            contamination=float(config.get("anomaly_detection.contamination", 0.1)),
+            min_samples=min_training_samples,
+        )
+        detector.fit(training_rows)
+
+        live_snapshot = process_monitor.capture_snapshot()
+        anomalies = []
+        alerts = []
+
+        for proc in live_snapshot:
+            prediction = detector.predict(proc)
+            proc_alerts = alert_manager.check_thresholds(proc, prediction=prediction)
+            alerts.extend(proc_alerts)
+            if prediction["is_anomaly"]:
+                anomalies.append(
+                    {
+                        **prediction,
+                        "cpu_percent": proc["cpu_percent"],
+                        "memory_mb": proc["memory_mb"],
+                        "memory_percent": proc["memory_percent"],
+                        "num_threads": proc["num_threads"],
+                    }
+                )
+
+        if alerts:
+            alert_manager.log_alerts(alerts)
+
+        if not anomalies:
+            console.print("[green]No anomalies detected in the current snapshot[/green]")
+        else:
+            _print_anomaly_table(anomalies[:limit], title="Detected Anomalies")
+            if alerts:
+                console.print()
+                console.print(f"[yellow]Logged {len(alerts)} alert(s) to the events store[/yellow]")
+        return
+
+    if alert_history:
+        rows = alert_manager.get_recent_alerts(hours=hours, limit=limit)
+        if not rows:
+            console.print("[yellow]No anomaly alerts found in the requested time window[/yellow]")
+            return
+        _print_alert_table(rows, title="Anomaly Alerts")
         return
 
     console.print("[bold]Live Monitoring Overview[/bold]")
@@ -544,6 +608,50 @@ def _print_timeline_table(rows, title):
         table.add_row(
             datetime.fromtimestamp(timestamp).isoformat(timespec="seconds"),
             f"{cpu_percent:.2f}",
+        )
+
+    console.print(table)
+
+
+def _print_anomaly_table(rows, title):
+    """Render anomaly detection results."""
+    table = Table(title=title)
+    table.add_column("PID", style="cyan", justify="right")
+    table.add_column("Process", style="yellow")
+    table.add_column("Score", style="magenta", justify="right")
+    table.add_column("CPU %", style="green", justify="right")
+    table.add_column("Memory MB", style="blue", justify="right")
+    table.add_column("Threads", style="white", justify="right")
+
+    for row in rows:
+        table.add_row(
+            str(row["pid"]),
+            str(row["process_name"]),
+            f"{row['anomaly_score']:.4f}",
+            f"{row['cpu_percent']:.2f}",
+            f"{row['memory_mb']:.2f}",
+            str(row["num_threads"]),
+        )
+
+    console.print(table)
+
+
+def _print_alert_table(rows, title):
+    """Render recent alert history rows."""
+    table = Table(title=title)
+    table.add_column("Timestamp", style="cyan")
+    table.add_column("Event", style="yellow")
+    table.add_column("Severity", style="magenta")
+    table.add_column("Process", style="green")
+    table.add_column("Message", style="white")
+
+    for row in rows:
+        table.add_row(
+            datetime.fromtimestamp(row["timestamp"]).isoformat(timespec="seconds"),
+            str(row["event_type"]),
+            str(row["severity"]),
+            str(row.get("process_name") or "-"),
+            str(row.get("message") or "-"),
         )
 
     console.print(table)

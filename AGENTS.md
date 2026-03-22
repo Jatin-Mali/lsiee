@@ -71,3 +71,16 @@
 - Performed a manual detached-daemon smoke check in an isolated temp database and found stale PID-file handling could leave `monitor --status` pointing at a dead PID after an unexpected stop.
 - Fixed the Week 5 daemon status path to clean stale PID files automatically and switched detached process startup to `start_new_session=True`.
 - Final Week 5 verification result: `venv/bin/pytest -q` passed with 52 tests green and 75% total coverage, and `scripts/verify_installation.py` passed in `venv`.
+- User requested "Week 6" next; after re-reading the implementation guide and current repo state, confirmed Phase 5 already covered Weeks 5-6 and the next unfinished block was Section 6 anomaly detection.
+- Re-read the anomaly-detection guide sections for Isolation Forest setup, feature engineering, real-time detection, alert logging, and completion criteria before making changes.
+- Confirmed `lsiee/system_observability/detection/` was still empty and there was no existing anomaly or alerting implementation in the repo.
+- Added `lsiee/system_observability/detection/anomaly_detector.py` with `AnomalyDetector`, `FeatureEngineer`, and `RealtimeAnomalyDetector` for batch and rolling anomaly detection over process snapshots.
+- Added `lsiee/system_observability/detection/alerting.py` with `AlertManager` for CPU/memory/anomaly alerts, SQLite event logging, and recent-alert queries.
+- Updated `lsiee/system_observability.detection.__init__` exports so the new detection surface is importable from the domain package.
+- Extended `lsiee/config.py` defaults with anomaly-detection settings for contamination, training thresholds, rolling history, and alert thresholds.
+- Updated `lsiee/cli.py` so `lsiee monitor` can now run `--detect-anomalies` against recent stored history plus the current live snapshot, and show persisted alerts with `--alert-history`.
+- Added unit coverage in `tests/unit/test_detection.py` for outlier detection, temporal feature engineering, real-time anomaly detection, and alert persistence.
+- Expanded CLI integration coverage in `tests/integration/test_cli.py` for anomaly detection output and alert-history display.
+- Ran targeted syntax checks, targeted anomaly unit tests, and targeted CLI tests in `venv`.
+- Found the first real-time anomaly test was too conservative with model-only scoring on a short per-process rolling window, then fixed `RealtimeAnomalyDetector` to fall back to clear temporal spike detection against recent history.
+- Re-ran targeted verification after the fix: `venv/bin/pytest tests/unit/test_detection.py -q` and `venv/bin/pytest tests/integration/test_cli.py -q` both passed.
