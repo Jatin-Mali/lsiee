@@ -94,6 +94,33 @@ def test_search_command(temp_test_dir, temp_environment):
     assert "file1.txt" in result.output
 
 
+def test_inspect_csv_command(tmp_path, temp_environment):
+    """Test CSV inspection command."""
+    filepath = tmp_path / "people.csv"
+    filepath.write_text("name,age\nAlice,25\nBob,30\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["inspect", str(filepath)])
+
+    assert result.exit_code == 0
+    assert "CSV File" in result.output
+    assert "Schema" in result.output
+    assert "name" in result.output
+
+
+def test_inspect_json_command_with_path(tmp_path, temp_environment):
+    """Test JSON inspection with JSON-path extraction."""
+    filepath = tmp_path / "data.json"
+    filepath.write_text('{"data": {"users": [{"name": "Alice"}]}}', encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["inspect", str(filepath), "--json-path", "data.users[0].name"])
+
+    assert result.exit_code == 0
+    assert "JSON Path" in result.output
+    assert "Alice" in result.output
+
+
 def test_monitor_placeholder():
     """Test monitor placeholder."""
     runner = CliRunner()

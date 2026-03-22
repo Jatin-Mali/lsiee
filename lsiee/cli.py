@@ -1,12 +1,15 @@
 """LSIEE Command Line Interface."""
 
 import click
-from pathlib import Path
 import logging
+from pathlib import Path
 from rich.console import Console
+from rich.json import JSON
 from rich.table import Table
 
 from lsiee.config import config, get_db_path, get_vector_db_path
+from lsiee.file_intelligence.data_extraction.parsers import StructuredDataParser
+from lsiee.file_intelligence.data_extraction.schema_detector import SchemaDetector
 from lsiee.file_intelligence.indexing.embedding_indexer import EmbeddingIndexer
 from lsiee.file_intelligence.indexing.indexer import Indexer
 from lsiee.file_intelligence.search.semantic_search import SemanticSearch
@@ -156,10 +159,102 @@ def search(query, max_results):
 
 @main.command()
 @click.argument("filepath", type=click.Path(exists=True))
-def inspect(filepath):
-    """Inspect file structure (Coming in Week 3!)."""
-    console.print(f"[yellow]🚧 Inspect feature coming in Week 3![/yellow]")
-    console.print(f"File: {filepath}")
+@click.option("--sheet", default=None, help="Excel sheet name")
+@click.option("--json-path", "json_path", default=None, help="Extract a value from a JSON path")
+def inspect(filepath, sheet, json_path):
+    """Inspect structured file contents."""
+    filepath = Path(filepath)
+    extension = filepath.suffix.lower()
+    parser = StructuredDataParser()
+    detector = SchemaDetector()
+
+    console.print(f"[blue]Inspecting:[/blue] {filepath}")
+    console.print()
+
+    if extension == ".csv":
+        data = parser.parse_csv(filepath)
+        schema = detector.detect_csv_schema(filepath)
+        if "error" in data:
+            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            raise click.Abort()
+
+        console.print("[green]CSV File[/green]")
+        console.print(f"Rows: {data['row_count']}")
+        console.print(f"Columns: {data['column_count']}")
+        console.print()
+        _print_schema_table(schema)
+        return
+
+    if extension in [".xlsx", ".xls"]:
+        data = parser.parse_excel(filepath, sheet_name=sheet)
+        if "error" in data:
+            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            raise click.Abort()
+
+        if sheet:
+            schemas = detector.detect_excel_schema(filepath, sheet_name=sheet)
+            console.print(f"[green]Excel Sheet:[/green] {sheet}")
+            console.print(f"Rows: {data['row_count']}")
+            console.print(f"Columns: {data['column_count']}")
+            console.print()
+            _print_schema_table(schemas.get(sheet, []), title=f"Schema: {sheet}")
+            return
+
+        console.print("[green]Excel File[/green]")
+        console.print(f"Sheets: {data['sheet_count']}")
+        console.print()
+        table = Table(title="Sheets")
+        table.add_column("Sheet", style="cyan")
+        table.add_column("Rows", style="magenta", justify="right")
+        table.add_column("Columns", style="yellow", justify="right")
+        for sheet_name, info in data["sheets"].items():
+            table.add_row(sheet_name, str(info["row_count"]), str(info["column_count"]))
+        console.print(table)
+        return
+
+    if extension == ".json":
+        data = parser.parse_json(filepath)
+        if "error" in data:
+            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            raise click.Abort()
+
+        console.print("[green]JSON File[/green]")
+        console.print(f"Type: {data['type']}")
+        console.print()
+
+        if json_path:
+            extracted = parser.extract_json_path(filepath, json_path)
+            console.print(f"[bold]JSON Path:[/bold] {json_path}")
+            console.print(JSON.from_data(extracted))
+            return
+
+        console.print("[bold]Structure:[/bold]")
+        console.print(JSON.from_data(data["structure"]))
+        console.print()
+        console.print("[bold]Sample:[/bold]")
+        console.print(data["sample"])
+        return
+
+    console.print(f"[yellow]Unsupported file type: {extension}[/yellow]")
+
+
+def _print_schema_table(schema, title="Schema"):
+    """Render schema information as a Rich table."""
+    table = Table(title=title)
+    table.add_column("Column", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Nulls", style="red", justify="right")
+    table.add_column("Unique", style="green", justify="right")
+
+    for column in schema:
+        table.add_row(
+            str(column["column_name"]),
+            str(column["column_type"]),
+            str(column["null_count"]),
+            str(column["unique_count"]),
+        )
+
+    console.print(table)
 
 
 @main.command()
