@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from types import SimpleNamespace
 
+from lsiee.config import config
 from lsiee.storage.schemas import initialize_database
 from lsiee.system_observability.monitoring.daemon import MonitoringDaemon, get_daemon_status
 from lsiee.system_observability.monitoring.history import ProcessHistory
@@ -148,3 +150,61 @@ def test_get_daemon_status_cleans_stale_pid_file(tmp_path, monkeypatch):
     assert status["running"] is False
     assert status["pid"] is None
     assert not pid_path.exists()
+
+
+def test_process_monitor_defaults_to_current_user_and_redacts_process_details(monkeypatch):
+    """Monitoring should skip other users and avoid storing cmdline/exe by default."""
+    config._config = config._default_config()
+
+    class FakeProc:
+        def __init__(self, pid, name, username):
+            self.info = {"pid": pid, "name": name, "username": username}
+
+        def memory_info(self):
+            return SimpleNamespace(rss=20 * 1024 * 1024)
+
+        def memory_percent(self):
+            return 1.5
+
+        def cpu_percent(self, interval=0.0):
+            return 12.0
+
+        def status(self):
+            return "running"
+
+        def num_threads(self):
+            return 3
+
+        def create_time(self):
+            return 100.0
+
+        def ppid(self):
+            return 1
+
+        def io_counters(self):
+            return SimpleNamespace(read_bytes=10, write_bytes=20)
+
+        def cmdline(self):
+            return ["python", "worker.py", "--token=secret"]
+
+        def exe(self):
+            return "/usr/bin/python"
+
+    monkeypatch.setattr(
+        "lsiee.system_observability.monitoring.process_monitor.psutil.process_iter",
+        lambda attrs: [
+            FakeProc(1, "python", "alice"),
+            FakeProc(2, "vpn", "bob"),
+        ],
+    )
+    monkeypatch.setattr(
+        "lsiee.system_observability.monitoring.process_monitor.psutil.Process",
+        lambda: SimpleNamespace(username=lambda: "alice"),
+    )
+
+    snapshot = ProcessMonitor().capture_snapshot()
+
+    assert len(snapshot) == 1
+    assert snapshot[0]["name"] == "python"
+    assert snapshot[0]["cmdline"] is None
+    assert snapshot[0]["exe_path"] is None

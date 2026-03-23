@@ -3,7 +3,7 @@
 ## CLI Entry Point
 
 - `lsiee.cli.main()`
-  - Commands: `index`, `status`, `search`, `inspect`, `query`, `monitor`, `explain`
+  - Commands: `index`, `status`, `verify`, `search`, `inspect`, `query`, `export`, `cleanup`, `delete-all-data`, `monitor`, `explain`
 
 ## File Intelligence
 
@@ -87,10 +87,12 @@
 
 - `initialize_database(db_path)`
 - `configure_connection(conn)`
+- `execute_with_retry(conn, sql, params=(), many=False, commit=False, ...)`
 - `MetadataDB.insert_file(file_record)`
 - `MetadataDB.insert_files(file_records)`
 - `MetadataDB.get_file_by_path(path)`
 - `MetadataDB.get_files_by_paths(paths)`
+- `MetadataDB.get_columns(table_name)`
 - `MetadataDB.update_file_record(file_id, file_record)`
 - `MetadataDB.get_stats()`
 
@@ -101,3 +103,12 @@
 - `get_db_path()`
 - `get_vector_db_path()`
 - `config`
+
+## Privacy And Security Helpers
+
+- `export_lsiee_data(db_path, vector_db_path, config_file, output_path, format="json")`
+- `cleanup_lsiee_data(db_path, data_type="all", older_than_days=None, dry_run=False)`
+- `purge_lsiee_data(db_path, vector_db_path, config_file, log_dir)`
+- `sanitize_terminal_text(value, max_length=4096, single_line=True)`
+- `sanitize_terminal_data(value)`
+- `verify_lsiee_runtime(db_path, vector_db_path, config_file, log_dir)`

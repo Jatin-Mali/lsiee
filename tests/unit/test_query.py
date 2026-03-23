@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from lsiee.file_intelligence.data_extraction.query_executor import QueryExecutor
 from lsiee.file_intelligence.data_extraction.result_formatter import ResultFormatter
@@ -107,3 +108,46 @@ def test_execute_query_safe_uses_timeout_wrapper(tmp_path, monkeypatch):
     result = executor.execute_query_safe(filepath, "count", timeout=1)
 
     assert result["error"] == "Query timeout - operation took too long"
+
+
+def test_query_rejects_overly_long_input(tmp_path):
+    """Query text should be bounded to avoid abuse."""
+    filepath = tmp_path / "values.csv"
+    pd.DataFrame({"value": [1]}).to_csv(filepath, index=False)
+
+    result = QueryExecutor().execute_query(filepath, "x" * 501)
+
+    assert result["error"] == "Query exceeds the maximum supported length"
+
+
+def test_query_rejects_too_many_conditions(tmp_path):
+    """Complex chained conditions should be rejected."""
+    filepath = tmp_path / "values.csv"
+    pd.DataFrame({"value": [1]}).to_csv(filepath, index=False)
+
+    result = QueryExecutor().execute_query(
+        filepath,
+        "value = 1 and value >= 1 and value <= 2 and value != 0",
+    )
+
+    assert result["error"] == "Query is too complex"
+
+
+def test_result_formatter_rejects_symlink_output(tmp_path):
+    """Exports should not follow output symlinks."""
+    formatter = ResultFormatter()
+    target = tmp_path / "target.csv"
+    target.write_text("seed", encoding="utf-8")
+    link_path = tmp_path / "results.csv"
+    link_path.symlink_to(target)
+
+    with pytest.raises(ValueError):
+        formatter.export_to_file([{"value": 1}], link_path, format="csv")
+
+
+def test_result_formatter_strips_terminal_escape_sequences():
+    """Formatted terminal tables should not include raw ANSI escapes."""
+    formatted = ResultFormatter().format_table([{"name": "\x1b[2Jdanger.txt"}])
+
+    assert "\x1b" not in formatted
+    assert "danger.txt" in formatted

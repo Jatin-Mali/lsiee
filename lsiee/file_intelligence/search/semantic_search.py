@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from lsiee.config import config, get_db_path, get_vector_db_path
+from lsiee.security import validate_positive_int, validate_query_text
 from lsiee.storage.vector_db import VectorDB
 
 logger = logging.getLogger(__name__)
@@ -25,10 +26,17 @@ class SemanticSearch:
 
     def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """Search for files matching a query."""
-        logger.info("Searching for: %s", query)
-
-        if not query.strip():
+        try:
+            query = validate_query_text(
+                query,
+                max_length=int(config.get("security.max_query_length", 500)),
+                max_conditions=int(config.get("security.max_query_conditions", 3)),
+            )
+            max_results = validate_positive_int(max_results, name="max_results", maximum=1000)
+        except ValueError:
             return []
+
+        logger.info("Searching for: %s", query)
 
         results = self.vector_db.search(query_text=query, n_results=max_results)
         formatted_results = []

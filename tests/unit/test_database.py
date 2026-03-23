@@ -97,3 +97,12 @@ def test_get_stats(temp_db):
         stats = db.get_stats()
         assert stats["total_files"] == 5
         assert stats["total_size_bytes"] > 0
+
+
+def test_files_table_uses_index_status_column(temp_db):
+    """The files table should expose the audited index_status column name only."""
+    with MetadataDB(temp_db) as db:
+        columns = db.get_columns("files")
+
+    assert "index_status" in columns
+    assert "status" not in columns

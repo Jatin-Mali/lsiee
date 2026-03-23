@@ -23,6 +23,12 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
+Security notes:
+
+- install inside a virtual environment
+- do not install or run LSIEE as `root`
+- review [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md) before production-like use
+
 ## Quick Start
 
 ```bash
@@ -34,6 +40,8 @@ venv/bin/python -m lsiee query data/sales.csv "sum of revenue by region"
 venv/bin/python -m lsiee monitor --start --iterations 1 --interval 0.1
 venv/bin/python -m lsiee monitor --detect-anomalies
 venv/bin/python -m lsiee explain "system slowdown"
+venv/bin/python -m lsiee verify
+venv/bin/python -m lsiee export --format json --output /tmp/lsiee-export.json
 ```
 
 ## Commands
@@ -42,6 +50,7 @@ venv/bin/python -m lsiee explain "system slowdown"
 | --- | --- |
 | `venv/bin/python -m lsiee index <directory>` | Index files and refresh the semantic search store |
 | `venv/bin/python -m lsiee status` | Show database and indexing status |
+| `venv/bin/python -m lsiee verify` | Validate local database integrity, schema consistency, and search-vector health |
 | `venv/bin/python -m lsiee search "<query>"` | Run semantic search across indexed files |
 | `venv/bin/python -m lsiee inspect <file>` | Inspect CSV, Excel, or JSON structure |
 | `venv/bin/python -m lsiee query <file> "<query>"` | Run safe read-only natural-language tabular queries |
@@ -51,6 +60,9 @@ venv/bin/python -m lsiee explain "system slowdown"
 | `venv/bin/python -m lsiee monitor --detect-anomalies` | Detect anomalies from recent history and log alerts |
 | `venv/bin/python -m lsiee monitor --alert-history` | Show persisted alerts from the events store |
 | `venv/bin/python -m lsiee explain "<issue>"` | Diagnose an incident using temporal evidence |
+| `venv/bin/python -m lsiee export --format json --output <file>` | Export local LSIEE data for review or portability |
+| `venv/bin/python -m lsiee cleanup --dry-run` | Preview aged monitoring and event data that can be deleted |
+| `venv/bin/python -m lsiee delete-all-data --confirm DELETE` | Remove LSIEE-managed local databases, vectors, config, and logs |
 
 ## Documentation
 
@@ -60,6 +72,8 @@ venv/bin/python -m lsiee explain "system slowdown"
 - [USER_GUIDE.md](USER_GUIDE.md)
 - [DEVELOPMENT.md](DEVELOPMENT.md)
 - [PERFORMANCE.md](PERFORMANCE.md)
+- [SECURITY.md](SECURITY.md)
+- [PRIVACY.md](PRIVACY.md)
 
 ## Demo
 

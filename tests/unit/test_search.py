@@ -2,6 +2,9 @@
 
 from datetime import datetime
 
+import pytest
+
+from lsiee.config import config
 from lsiee.file_intelligence.indexing.embedding_indexer import EmbeddingIndexer
 from lsiee.file_intelligence.search.embeddings import EmbeddingModel
 from lsiee.file_intelligence.search.semantic_search import SemanticSearch
@@ -9,6 +12,12 @@ from lsiee.file_intelligence.search.text_extractor import TextExtractor
 from lsiee.storage.metadata_db import FileRecord, MetadataDB
 from lsiee.storage.schemas import initialize_database
 from lsiee.storage.vector_db import VectorDB
+
+
+@pytest.fixture(autouse=True)
+def reset_config():
+    """Keep search tests isolated from any user-local config state."""
+    config._config = config._default_config()
 
 
 def test_embedding_generation():
@@ -121,3 +130,35 @@ def test_semantic_search_returns_relevant_results(tmp_path):
     assert results
     assert results[0]["metadata"]["filename"] == "bugfix.py"
     assert results[0]["final_score"] >= results[-1]["final_score"]
+
+
+def test_embedding_indexer_marks_non_text_files_skipped(tmp_path):
+    """Binary or unsupported files should be skipped instead of marked indexed."""
+    db_path = tmp_path / "lsiee.db"
+    vector_db_path = tmp_path / "vectors"
+    initialize_database(db_path)
+
+    binary_file = tmp_path / "image.png"
+    binary_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    with MetadataDB(db_path) as db:
+        db.insert_file(
+            FileRecord(
+                id=None,
+                path=str(binary_file),
+                filename=binary_file.name,
+                extension="png",
+                size_bytes=binary_file.stat().st_size,
+                modified_at=datetime.fromtimestamp(binary_file.stat().st_mtime),
+            )
+        )
+
+    indexer = EmbeddingIndexer(db_path=db_path, vector_db_path=vector_db_path)
+    indexed_count = indexer.index_all_pending()
+
+    assert indexed_count == 0
+    assert VectorDB(vector_db_path).count() == 0
+    with MetadataDB(db_path) as db:
+        record = db.get_file_by_path(str(binary_file))
+    assert record is not None
+    assert record.index_status == "skipped"

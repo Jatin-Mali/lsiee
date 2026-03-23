@@ -8,6 +8,8 @@ from typing import Any
 
 import pandas as pd
 
+from lsiee.security import atomic_write_text, ensure_safe_output_path, sanitize_terminal_text
+
 
 class ResultFormatter:
     """Format query results for display or export."""
@@ -18,14 +20,20 @@ class ResultFormatter:
             return "No results"
 
         if isinstance(results, list):
-            df = pd.DataFrame(results)
+            df = pd.DataFrame(self._sanitize_rows(results))
             return df.to_string(index=False) if not df.empty else "No results"
 
         if isinstance(results, dict):
-            df = pd.DataFrame(results.items(), columns=["key", "value"])
+            df = pd.DataFrame(
+                [
+                    (sanitize_terminal_text(key), sanitize_terminal_text(value))
+                    for key, value in results.items()
+                ],
+                columns=["key", "value"],
+            )
             return df.to_string(index=False)
 
-        return str(results)
+        return sanitize_terminal_text(results)
 
     def format_json(self, results: Any) -> str:
         """Format results as JSON."""
@@ -37,13 +45,13 @@ class ResultFormatter:
 
     def export_to_file(self, results: Any, output_path: Path, format: str = "csv") -> None:
         """Export results to CSV or JSON."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_path = ensure_safe_output_path(output_path)
 
         if format == "json":
-            output_path.write_text(self.format_json(results), encoding="utf-8")
+            atomic_write_text(safe_path, self.format_json(results))
             return
 
-        self._to_dataframe(results).to_csv(output_path, index=False)
+        atomic_write_text(safe_path, self._to_dataframe(results).to_csv(index=False))
 
     def _to_dataframe(self, results: Any) -> pd.DataFrame:
         """Convert supported result shapes into a DataFrame."""
@@ -54,3 +62,21 @@ class ResultFormatter:
             return pd.DataFrame(results.items(), columns=["key", "value"])
 
         return pd.DataFrame([{"value": results}])
+
+    @staticmethod
+    def _sanitize_rows(results: list[Any]) -> list[Any]:
+        """Sanitize string cells when rendering untrusted rows to the terminal."""
+        sanitized = []
+        for row in results:
+            if isinstance(row, dict):
+                sanitized.append(
+                    {
+                        sanitize_terminal_text(key): (
+                            sanitize_terminal_text(value) if isinstance(value, str) else value
+                        )
+                        for key, value in row.items()
+                    }
+                )
+            else:
+                sanitized.append(row)
+        return sanitized

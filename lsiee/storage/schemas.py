@@ -1,8 +1,15 @@
 """Database schemas for LSIEE."""
 
+import hashlib
+import json
+import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Optional
+
+SQLITE_RETRY_ATTEMPTS = 5
+SQLITE_INITIAL_RETRY_DELAY = 0.05
 
 
 def configure_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
@@ -11,7 +18,64 @@ def configure_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA auto_vacuum = FULL")
     return conn
+
+
+def tighten_database_permissions(db_path: Path) -> None:
+    """Apply restrictive permissions to the SQLite database and sidecars."""
+    for candidate in (
+        Path(db_path),
+        Path(f"{db_path}-wal"),
+        Path(f"{db_path}-shm"),
+    ):
+        if not candidate.exists():
+            continue
+        try:
+            os.chmod(candidate, 0o600)
+        except OSError:
+            continue
+
+
+def _is_transient_sqlite_error(exc: sqlite3.Error) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database schema is locked" in message
+
+
+def execute_with_retry(
+    conn: sqlite3.Connection,
+    sql: str,
+    params=(),
+    *,
+    many: bool = False,
+    commit: bool = False,
+    db_path: Optional[Path] = None,
+    retry_attempts: int = SQLITE_RETRY_ATTEMPTS,
+    initial_delay: float = SQLITE_INITIAL_RETRY_DELAY,
+):
+    """Execute SQL with bounded retry/backoff for transient SQLite lock errors."""
+    delay = initial_delay
+    last_exc: Optional[sqlite3.Error] = None
+
+    for attempt in range(retry_attempts):
+        try:
+            cursor = conn.executemany(sql, params) if many else conn.execute(sql, params)
+            if commit:
+                conn.commit()
+                if db_path is not None:
+                    tighten_database_permissions(db_path)
+            return cursor
+        except sqlite3.Error as exc:
+            last_exc = exc
+            if not _is_transient_sqlite_error(exc) or attempt == retry_attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+    if last_exc is not None:  # pragma: no cover - defensive fallback
+        raise last_exc
+    raise sqlite3.OperationalError("SQLite operation failed without an exception")
 
 
 class DatabaseSchema:
@@ -29,7 +93,8 @@ class DatabaseSchema:
     def connect(self):
         """Connect to database."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = configure_connection(sqlite3.connect(self.db_path))
+        self.conn = configure_connection(sqlite3.connect(self.db_path, timeout=30.0))
+        tighten_database_permissions(self.db_path)
 
     def disconnect(self):
         """Disconnect from database."""
@@ -142,6 +207,8 @@ class DatabaseSchema:
                 related_file_id INTEGER,
                 severity TEXT DEFAULT 'INFO',
                 tags TEXT,
+                created_at REAL DEFAULT (unixepoch()),
+                checksum TEXT,
                 CHECK (severity IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'))
             )
         """)
@@ -149,6 +216,7 @@ class DatabaseSchema:
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_events_source ON events(source)")
+        self._ensure_events_integrity_columns()
 
     def _create_correlations_table(self):
         """Create table for discovered correlations."""
@@ -171,6 +239,58 @@ class DatabaseSchema:
             ON correlations(event_type_a, event_type_b)
             """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_correlations_lift ON correlations(lift)")
+
+    def _ensure_events_integrity_columns(self):
+        """Backfill integrity columns for event logs in older databases."""
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(events)").fetchall()}
+
+        if "created_at" not in columns:
+            self.conn.execute("ALTER TABLE events ADD COLUMN created_at REAL")
+        if "checksum" not in columns:
+            self.conn.execute("ALTER TABLE events ADD COLUMN checksum TEXT")
+
+        stale_rows = self.conn.execute("""
+            SELECT id, timestamp, event_type, source, data, related_process_id,
+                   related_file_id, severity, tags, created_at, checksum
+            FROM events
+            WHERE created_at IS NULL OR checksum IS NULL
+            """).fetchall()
+
+        for row in stale_rows:
+            event = dict(row)
+            created_at = float(event.get("created_at") or event["timestamp"] or time.time())
+            checksum = self._calculate_event_checksum(event)
+            self.conn.execute(
+                "UPDATE events SET created_at = ?, checksum = ? WHERE id = ?",
+                (created_at, checksum, event["id"]),
+            )
+
+    @staticmethod
+    def _canonical_json(value) -> str:
+        """Serialize event payloads consistently for integrity hashing."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return value
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+    @classmethod
+    def _calculate_event_checksum(cls, row: dict) -> str:
+        """Calculate a stable checksum for an event row."""
+        payload = {
+            "timestamp": float(row["timestamp"]),
+            "event_type": str(row["event_type"]),
+            "source": str(row["source"]),
+            "data": cls._canonical_json(row.get("data") or {}),
+            "related_process_id": row.get("related_process_id"),
+            "related_file_id": row.get("related_file_id"),
+            "severity": str(row.get("severity") or "INFO").upper(),
+            "tags": cls._canonical_json(row.get("tags") or []),
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 def initialize_database(db_path: Path) -> DatabaseSchema:

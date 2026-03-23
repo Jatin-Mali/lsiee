@@ -11,6 +11,8 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
+Do not install LSIEE with `sudo` or into a shared system Python.
+
 ## 2. Verify The Installation
 
 ```bash
@@ -23,6 +25,7 @@ venv/bin/python -m lsiee --help
 ```bash
 venv/bin/python -m lsiee index ~/Documents
 venv/bin/python -m lsiee status
+venv/bin/python -m lsiee verify
 venv/bin/python -m lsiee search "release checklist"
 ```
 
@@ -51,9 +54,18 @@ venv/bin/python -m lsiee explain "system slowdown"
 venv/bin/python -m lsiee explain "cpu high" --time 1710000000
 ```
 
-## 7. Run The Full Validation Suite
+## 7. Review, Export, And Clean Up Local Data
 
 ```bash
+venv/bin/python -m lsiee export --format json --output /tmp/lsiee-export.json
+venv/bin/python -m lsiee cleanup --dry-run
+venv/bin/python -m lsiee cleanup --type events --older-than 30 --yes
+```
+
+## 8. Run The Full Validation Suite
+
+```bash
+venv/bin/python -m lsiee verify
 venv/bin/pytest -q
 venv/bin/python -m black --check lsiee tests scripts
 venv/bin/python -m isort --check-only lsiee tests scripts
@@ -67,3 +79,5 @@ venv/bin/python -m flake8 lsiee tests scripts
 - [USER_GUIDE.md](USER_GUIDE.md)
 - [DEVELOPMENT.md](DEVELOPMENT.md)
 - [PERFORMANCE.md](PERFORMANCE.md)
+- [SECURITY.md](SECURITY.md)
+- [PRIVACY.md](PRIVACY.md)

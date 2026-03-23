@@ -4,6 +4,9 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+from lsiee.config import config
+from lsiee.security import PathSecurityError, read_secure_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,15 +31,16 @@ class TextExtractor:
                 logger.debug(f"Unsupported file type: {extension}")
                 return None
 
-        except Exception as e:
-            logger.warning(f"Could not extract text from {filepath}: {e}")
+        except (PathSecurityError, OSError) as exc:
+            logger.warning("Could not extract text from %s: %s", filepath.name, exc)
             return None
 
     def _extract_plain_text(self, filepath: Path) -> str:
         """Extract from plain text file."""
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read(1024 * 1024)  # Max 1MB
-        return content
+        return read_secure_text(
+            filepath,
+            max_bytes=int(config.get("security.max_text_extract_bytes", 1024 * 1024)),
+        )
 
     def chunk_text(self, text: str, chunk_size: int = 512) -> List[str]:
         """Split text into chunks.

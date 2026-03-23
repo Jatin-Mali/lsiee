@@ -20,9 +20,9 @@ def temp_test_dir():
     test_dir = Path(tempfile.mkdtemp())
 
     # Create test files
-    (test_dir / "file1.txt").write_text("Test 1")
-    (test_dir / "file2.txt").write_text("Test 2")
-    (test_dir / "file3.txt").write_text("Test 3")
+    (test_dir / "file1.txt").write_text("Test 1 semantic content for search", encoding="utf-8")
+    (test_dir / "file2.txt").write_text("Test 2 semantic content for search", encoding="utf-8")
+    (test_dir / "file3.txt").write_text("Test 3 semantic content for search", encoding="utf-8")
 
     yield test_dir
 
@@ -59,6 +59,20 @@ def test_index_command(temp_test_dir, temp_environment):
     assert "3" in result.output
 
 
+def test_index_command_rejects_symlink_directory(tmp_path, temp_environment):
+    """The CLI should reject symlinked directories."""
+    source = tmp_path / "source"
+    source.mkdir()
+    link = tmp_path / "linked-source"
+    link.symlink_to(source, target_is_directory=True)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["index", str(link), "--no-progress"])
+
+    assert result.exit_code != 0
+    assert "Access denied or invalid directory" in result.output
+
+
 def test_status_command(temp_test_dir, temp_environment):
     """Test status command."""
     runner = CliRunner()
@@ -71,6 +85,16 @@ def test_status_command(temp_test_dir, temp_environment):
 
     assert result.exit_code == 0
     assert "Status" in result.output or "Statistics" in result.output
+    assert "Skipped Files" in result.output
+
+
+def test_verify_command_reports_success(temp_environment):
+    """The verification command should pass for a clean isolated environment."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["verify"])
+
+    assert result.exit_code == 0
+    assert "Verification passed" in result.output
 
 
 def test_help_command():
@@ -94,6 +118,63 @@ def test_search_command(temp_test_dir, temp_environment):
 
     assert result.exit_code == 0
     assert "file1.txt" in result.output
+
+
+def test_search_command_rejects_shell_metacharacters(temp_environment):
+    """Search input should reject suspicious shell-like metacharacters."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["search", "test; rm -rf ~"])
+
+    assert result.exit_code != 0
+    assert "unsupported shell metacharacters" in result.output
+
+
+def test_search_command_reports_when_only_non_text_files_are_indexed(tmp_path, temp_environment):
+    """Search should explain why results are empty when all files were skipped."""
+    binary_dir = tmp_path / "binary"
+    binary_dir.mkdir()
+    (binary_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    runner = CliRunner()
+    index_result = runner.invoke(main, ["index", str(binary_dir), "--no-progress"])
+
+    assert index_result.exit_code == 0
+
+    result = runner.invoke(main, ["search", "image"])
+
+    assert result.exit_code == 0
+    assert "No searchable files were indexed" in result.output
+
+
+def test_verify_command_detects_search_index_mismatch(tmp_path, temp_environment):
+    """Verification should fail when the files table and vector store drift apart."""
+    sample_file = tmp_path / "notes.txt"
+    sample_file.write_text("semantic search content", encoding="utf-8")
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        conn.execute(
+            """
+            INSERT INTO files
+            (path, filename, extension, size_bytes, modified_at, content_hash, index_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(sample_file),
+                sample_file.name,
+                "txt",
+                sample_file.stat().st_size,
+                sample_file.stat().st_mtime,
+                None,
+                "indexed",
+            ),
+        )
+        conn.commit()
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["verify"])
+
+    assert result.exit_code != 0
+    assert "missing_vectors=1" in result.output
 
 
 def test_inspect_csv_command(tmp_path, temp_environment):
@@ -121,6 +202,19 @@ def test_inspect_json_command_with_path(tmp_path, temp_environment):
     assert result.exit_code == 0
     assert "JSON Path" in result.output
     assert "Alice" in result.output
+
+
+def test_inspect_json_strips_terminal_escape_sequences(tmp_path, temp_environment):
+    """JSON inspection output should strip terminal control characters from sample data."""
+    filepath = tmp_path / "danger.json"
+    filepath.write_text('{"sample": "\\u001b[2Jdanger"}', encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["inspect", str(filepath)])
+
+    assert result.exit_code == 0
+    assert "\x1b" not in result.output
+    assert "danger" in result.output
 
 
 def test_query_command_returns_scalar_result(tmp_path, temp_environment):
@@ -152,6 +246,87 @@ def test_query_command_exports_results(tmp_path, temp_environment):
     assert "Exported to" in result.output
     assert export_path.exists()
     assert "250" in export_path.read_text(encoding="utf-8")
+
+
+def test_export_command_writes_json_bundle(temp_test_dir, temp_environment):
+    """Export should write a JSON document describing the local LSIEE data."""
+    runner = CliRunner()
+    runner.invoke(main, ["index", str(temp_test_dir), "--no-progress"])
+
+    output_path = temp_test_dir / "lsiee-export.json"
+    result = runner.invoke(main, ["export", "--format", "json", "--output", str(output_path)])
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    payload = output_path.read_text(encoding="utf-8")
+    assert '"counts"' in payload
+    assert '"files"' in payload
+
+
+def test_cleanup_command_deletes_old_events(temp_environment):
+    """Cleanup should delete aged event rows when confirmed."""
+    old_timestamp = time.time() - (120 * 86400)
+    recent_timestamp = time.time()
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        conn.execute(
+            """
+            INSERT INTO events
+            (timestamp, event_type, source, data, severity, tags, created_at, checksum)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (old_timestamp, "old_event", "tests", "{}", "INFO", "[]", old_timestamp, "checksum"),
+        )
+        conn.execute(
+            """
+            INSERT INTO events
+            (timestamp, event_type, source, data, severity, tags, created_at, checksum)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                recent_timestamp,
+                "recent_event",
+                "tests",
+                "{}",
+                "INFO",
+                "[]",
+                recent_timestamp,
+                "checksum",
+            ),
+        )
+        conn.commit()
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["cleanup", "--type", "events", "--older-than", "30", "--yes"])
+
+    assert result.exit_code == 0
+    assert "Cleanup complete" in result.output
+
+    with sqlite3.connect(temp_environment["db_path"]) as conn:
+        remaining = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+    assert remaining == 1
+
+
+def test_delete_all_data_command_removes_local_artifacts(tmp_path, temp_environment):
+    """Full local-data deletion should remove LSIEE-managed state files."""
+    vector_db_dir = temp_environment["vector_db_path"]
+    vector_db_dir.mkdir(parents=True, exist_ok=True)
+    (vector_db_dir / "vectors.json").write_text(
+        '{"ids":[],"embeddings":[],"documents":[],"metadatas":[]}', encoding="utf-8"
+    )
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(exist_ok=True)
+    (config_dir / "config.yaml").write_text("search:\n  max_results: 10\n", encoding="utf-8")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["delete-all-data", "--confirm", "DELETE"])
+
+    assert result.exit_code == 0
+    assert "Deleted" in result.output
+    assert not temp_environment["db_path"].exists()
+    assert not vector_db_dir.exists()
 
 
 def test_monitor_status_command(temp_environment):
@@ -335,3 +510,5 @@ def test_explain_command_reports_root_causes(temp_environment):
     assert "Root Causes" in result.output
     assert "backup.exe" in result.output
     assert "Recommendations" in result.output
+    assert "not proven" in result.output.lower()
+    assert "causation" in result.output.lower()

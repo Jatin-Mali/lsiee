@@ -13,6 +13,7 @@ pip install -r requirements-dev.txt
 
 ```bash
 venv/bin/python scripts/verify_installation.py
+venv/bin/python -m lsiee verify
 venv/bin/pytest -q
 venv/bin/python -m black --check lsiee tests scripts
 venv/bin/python -m isort --check-only lsiee tests scripts
@@ -39,6 +40,7 @@ venv/bin/python -m isort lsiee tests scripts
 ```bash
 venv/bin/python -m lsiee --help
 venv/bin/python -m lsiee status
+venv/bin/python -m lsiee verify
 ```
 
 ## Coding Standards
@@ -52,7 +54,9 @@ venv/bin/python -m lsiee status
 
 ```bash
 git status --short
+venv/bin/pip-audit
 venv/bin/python scripts/verify_installation.py
+venv/bin/python -m lsiee verify
 venv/bin/pytest -q
 venv/bin/python -m black --check lsiee tests scripts
 venv/bin/python -m isort --check-only lsiee tests scripts
@@ -62,3 +66,9 @@ git commit -m "LSIEE v1.0.0 - final integration"
 git tag -a v1.0.0 -m "LSIEE v1.0.0 - Final Release"
 git push origin main --tags
 ```
+
+## Security Release Notes
+
+- Keep dependency versions pinned in `requirements.txt`.
+- Validate `lsiee export`, `lsiee cleanup`, and `lsiee delete-all-data` in an isolated temp workspace before release.
+- Review [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md) whenever the data model or monitoring surface changes.

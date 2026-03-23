@@ -2,10 +2,19 @@
 
 import json
 import logging
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pandas as pd
+
+from lsiee.config import config
+from lsiee.security import (
+    PathSecurityError,
+    read_secure_bytes,
+    read_secure_text,
+    validate_json_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,19 +25,28 @@ class StructuredDataParser:
     def parse_csv(self, filepath: Path) -> Dict[str, Any]:
         """Parse a CSV file."""
         try:
-            df = pd.read_csv(filepath)
+            payload = read_secure_text(
+                filepath,
+                max_bytes=int(config.get("security.max_parse_file_size_mb", 100) * 1024 * 1024),
+            )
+            df = pd.read_csv(StringIO(payload))
             return self._build_dataframe_result(df)
-        except Exception as exc:
-            logger.error("Error parsing CSV %s: %s", filepath, exc)
-            return {"error": str(exc)}
+        except (PathSecurityError, ValueError, OSError, pd.errors.ParserError) as exc:
+            logger.error("Error parsing CSV %s: %s", filepath.name, exc)
+            return {"error": "Unable to inspect the requested file"}
 
     def parse_excel(self, filepath: Path, sheet_name: Optional[str] = None) -> Dict[str, Any]:
         """Parse an Excel file."""
         try:
-            excel_file = pd.ExcelFile(filepath)
+            payload = read_secure_bytes(
+                filepath,
+                max_bytes=int(config.get("security.max_parse_file_size_mb", 100) * 1024 * 1024),
+            )
+            excel_buffer = BytesIO(payload)
+            excel_file = pd.ExcelFile(excel_buffer)
 
             if sheet_name:
-                df = pd.read_excel(filepath, sheet_name=sheet_name)
+                df = pd.read_excel(BytesIO(payload), sheet_name=sheet_name)
                 result = self._build_dataframe_result(df)
                 result["sheet"] = sheet_name
                 return result
@@ -38,7 +56,7 @@ class StructuredDataParser:
                 "sheets": {},
             }
             for sheet in excel_file.sheet_names:
-                df = pd.read_excel(filepath, sheet_name=sheet)
+                df = pd.read_excel(BytesIO(payload), sheet_name=sheet)
                 result["sheets"][sheet] = {
                     "row_count": len(df),
                     "column_count": len(df.columns),
@@ -46,31 +64,38 @@ class StructuredDataParser:
                     "summary": self._generate_summary(df),
                 }
             return result
-        except Exception as exc:
-            logger.error("Error parsing Excel %s: %s", filepath, exc)
-            return {"error": str(exc)}
+        except (PathSecurityError, ValueError, OSError) as exc:
+            logger.error("Error parsing Excel %s: %s", filepath.name, exc)
+            return {"error": "Unable to inspect the requested file"}
 
     def parse_json(self, filepath: Path) -> Dict[str, Any]:
         """Parse a JSON file."""
         try:
-            with open(filepath, "r", encoding="utf-8") as file:
-                data = json.load(file)
+            payload = read_secure_text(
+                filepath,
+                max_bytes=int(config.get("security.max_json_bytes", 2 * 1024 * 1024)),
+            )
+            data = json.loads(payload)
 
             return {
                 "type": type(data).__name__,
                 "structure": self._analyze_json_structure(data),
                 "sample": json.dumps(data, indent=2, default=str)[:500],
             }
-        except Exception as exc:
-            logger.error("Error parsing JSON %s: %s", filepath, exc)
-            return {"error": str(exc)}
+        except (PathSecurityError, ValueError, OSError, json.JSONDecodeError) as exc:
+            logger.error("Error parsing JSON %s: %s", filepath.name, exc)
+            return {"error": "Unable to inspect the requested file"}
 
     def extract_json_path(self, filepath: Path, json_path: str) -> Any:
         """Extract a value from a JSON file using dot notation with list indexes."""
-        with open(filepath, "r", encoding="utf-8") as file:
-            value: Any = json.load(file)
+        validated_path = validate_json_path(json_path)
+        payload = read_secure_text(
+            filepath,
+            max_bytes=int(config.get("security.max_json_bytes", 2 * 1024 * 1024)),
+        )
+        value: Any = json.loads(payload)
 
-        for part in json_path.split("."):
+        for part in validated_path.split("."):
             if not part:
                 continue
 

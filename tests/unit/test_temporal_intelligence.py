@@ -35,7 +35,30 @@ def test_event_logger_logs_and_filters_events(tmp_path):
 
     assert len(rows) == 1
     assert rows[0]["event_type"] == "index_started"
-    assert rows[0]["data"]["directory"] == "/tmp/corpus"
+    assert rows[0]["data"]["directory"] == "corpus"
+
+
+def test_event_logger_detects_tampered_events(tmp_path):
+    """Events with mismatched checksums should be excluded from reads."""
+    db_path = tmp_path / "lsiee.db"
+    schema = initialize_database(db_path)
+    schema.disconnect()
+
+    logger = EventLogger(db_path)
+    logger.log_event(
+        event_type="index_started",
+        source="file_indexer",
+        data={"directory": "/tmp/corpus"},
+        timestamp=100.0,
+    )
+
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE events SET data = ? WHERE id = 1", ('{"directory":"tampered"}',))
+        conn.commit()
+
+    assert logger.get_events(limit=10) == []
 
 
 def test_indexer_emits_index_lifecycle_events(tmp_path):

@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from lsiee.config import config, get_db_path
-from lsiee.storage.schemas import configure_connection, initialize_database
+from lsiee.security import atomic_write_text, ensure_safe_directory, read_secure_text
+from lsiee.storage.schemas import configure_connection, execute_with_retry, initialize_database
 from lsiee.system_observability.monitoring.process_monitor import ProcessMonitor
 from lsiee.temporal_intelligence.events import EventLogger
 
@@ -36,7 +37,7 @@ def read_pid(pid_path: Optional[Path] = None) -> Optional[int]:
         return None
 
     try:
-        return int(path.read_text(encoding="utf-8").strip())
+        return int(read_secure_text(path, max_bytes=64).strip())
     except (OSError, ValueError):
         return None
 
@@ -166,7 +167,8 @@ class MonitoringDaemon:
 
         with sqlite3.connect(self.db_path) as conn:
             configure_connection(conn)
-            conn.executemany(
+            execute_with_retry(
+                conn,
                 """
                 INSERT INTO process_snapshots
                 (timestamp, pid, name, exe_path, cmdline, cpu_percent, memory_mb,
@@ -175,8 +177,22 @@ class MonitoringDaemon:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
+                many=True,
             )
-            conn.commit()
+            retention_days = int(
+                config.get(
+                    "retention.process_snapshots_days",
+                    config.get("monitoring.retention_days", 30),
+                )
+            )
+            cutoff = time.time() - (retention_days * 86400)
+            execute_with_retry(
+                conn,
+                "DELETE FROM process_snapshots WHERE timestamp < ?",
+                (cutoff,),
+                commit=True,
+                db_path=self.db_path,
+            )
 
         logger.debug("Stored %s process snapshots", len(rows))
 
@@ -192,6 +208,7 @@ def spawn_background_daemon(
     if is_pid_running(existing_pid):
         return existing_pid  # pragma: no cover - idempotent external path
 
+    ensure_safe_directory(active_db_path.parent, must_exist=False)
     active_db_path.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
@@ -216,7 +233,7 @@ def spawn_background_daemon(
         close_fds=True,
         start_new_session=True,
     )
-    pid_path.write_text(str(process.pid), encoding="utf-8")
+    atomic_write_text(pid_path, str(process.pid))
     return process.pid
 
 
@@ -269,7 +286,7 @@ def run_foreground_daemon(
     daemon = MonitoringDaemon(db_path=db_path, interval=interval)
 
     pid_path.parent.mkdir(parents=True, exist_ok=True)
-    pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    atomic_write_text(pid_path, str(os.getpid()))
 
     def handle_stop(*_args):
         daemon.stop()

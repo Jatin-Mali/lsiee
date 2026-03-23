@@ -5,10 +5,21 @@ from __future__ import annotations
 import logging
 import re
 import signal
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Dict
 
 import pandas as pd
+
+from lsiee.config import config
+from lsiee.security import (
+    PathSecurityError,
+    read_secure_bytes,
+    read_secure_text,
+    validate_column_identifier,
+    validate_positive_int,
+    validate_query_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +29,10 @@ class QueryExecutor:
 
     def __init__(self, max_result_rows: int = 1000):
         """Initialize the executor with a result-size limit."""
-        self.max_result_rows = max_result_rows
+        self.max_result_rows = min(
+            max_result_rows,
+            int(config.get("security.max_query_results", 1000)),
+        )
         self.supported_operations = [
             "filter",
             "sum",
@@ -32,21 +46,30 @@ class QueryExecutor:
 
     def execute_query(self, filepath: Path, query: str) -> Dict[str, Any]:
         """Execute a natural-language query on a CSV or Excel file."""
+        try:
+            query_text = validate_query_text(
+                query,
+                max_length=int(config.get("security.max_query_length", 500)),
+                max_conditions=int(config.get("security.max_query_conditions", 3)),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
         df = self._load_file(filepath)
         if df is None:
             return {"error": "Could not load file"}
 
-        operation = self._parse_query(query)
+        operation = self._parse_query(query_text)
 
         try:
             result = self._execute_operation(df, operation)
         except Exception as exc:
-            logger.error("Query execution error for %s: %s", filepath, exc)
-            return {"error": str(exc)}
+            logger.error("Query execution error for %s: %s", filepath.name, exc)
+            return {"error": "Query execution failed"}
 
         return {
             "success": True,
-            "query": query,
+            "query": query_text,
             "operation": operation,
             "result": result,
         }
@@ -58,6 +81,10 @@ class QueryExecutor:
         timeout: int = 30,
     ) -> Dict[str, Any]:
         """Execute a query with a timeout guard."""
+        try:
+            validate_positive_int(timeout, name="timeout", maximum=300)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         def timeout_handler(signum, frame):  # pragma: no cover - signal callback
             raise TimeoutError("Query execution timeout")
@@ -86,15 +113,18 @@ class QueryExecutor:
     def _load_file(self, filepath: Path) -> pd.DataFrame | None:
         """Load a supported tabular file into a DataFrame."""
         extension = filepath.suffix.lower()
+        max_bytes = int(config.get("security.max_parse_file_size_mb", 100) * 1024 * 1024)
 
         try:
             if extension == ".csv":
-                return pd.read_csv(filepath)
+                payload = read_secure_text(filepath, max_bytes=max_bytes)
+                return pd.read_csv(StringIO(payload))
             if extension in {".xlsx", ".xls"}:
-                return pd.read_excel(filepath)
+                payload = read_secure_bytes(filepath, max_bytes=max_bytes)
+                return pd.read_excel(BytesIO(payload))
             return None
-        except Exception as exc:
-            logger.error("Error loading %s: %s", filepath, exc)
+        except (PathSecurityError, OSError, ValueError) as exc:
+            logger.error("Error loading %s: %s", filepath.name, exc)
             return None
 
     def _parse_query(self, query: str) -> Dict[str, Any]:
@@ -113,8 +143,8 @@ class QueryExecutor:
             agg_func, agg_col, group_col = group_match.groups()
             return {
                 "type": "groupby",
-                "group_column": group_col.strip(),
-                "agg_column": agg_col.strip(),
+                "group_column": validate_column_identifier(group_col),
+                "agg_column": validate_column_identifier(agg_col),
                 "agg_function": self._normalize_agg_function(agg_func),
             }
 
@@ -123,7 +153,7 @@ class QueryExecutor:
             column, direction = sort_match.groups()
             return {
                 "type": "sort",
-                "column": column.strip(),
+                "column": validate_column_identifier(column),
                 "ascending": (direction or "asc") != "desc",
             }
 
@@ -139,7 +169,9 @@ class QueryExecutor:
             column, operator, raw_value = filter_match.groups()
             return {
                 "type": "filter",
-                "column": column.replace("all rows", "").replace("rows", "").strip(),
+                "column": validate_column_identifier(
+                    column.replace("all rows", "").replace("rows", "").strip()
+                ),
                 "operator": "==" if operator == "=" else operator,
                 "value": self._parse_value(raw_value),
             }
@@ -152,7 +184,7 @@ class QueryExecutor:
             agg_func, column = agg_match.groups()
             return {
                 "type": self._normalize_agg_function(agg_func),
-                "column": column.strip(),
+                "column": validate_column_identifier(column),
             }
 
         if re.search(r"\bcount\b", lowered):

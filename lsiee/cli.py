@@ -10,7 +10,7 @@ from rich.json import JSON
 from rich.table import Table
 
 from lsiee import __version__
-from lsiee.config import config, get_db_path, get_vector_db_path
+from lsiee.config import config, get_data_dir, get_db_path, get_vector_db_path
 from lsiee.file_intelligence.data_extraction.parsers import StructuredDataParser
 from lsiee.file_intelligence.data_extraction.query_executor import QueryExecutor
 from lsiee.file_intelligence.data_extraction.result_formatter import ResultFormatter
@@ -18,6 +18,25 @@ from lsiee.file_intelligence.data_extraction.schema_detector import SchemaDetect
 from lsiee.file_intelligence.indexing.embedding_indexer import EmbeddingIndexer
 from lsiee.file_intelligence.indexing.indexer import Indexer
 from lsiee.file_intelligence.search.semantic_search import SemanticSearch
+from lsiee.security import (
+    PathSecurityError,
+    cleanup_lsiee_data,
+    display_path,
+    ensure_safe_directory,
+    ensure_safe_file,
+    ensure_safe_output_path,
+    export_lsiee_data,
+    purge_lsiee_data,
+    safe_rich_text,
+    sanitize_terminal_data,
+    sanitize_terminal_text,
+    validate_generic_text,
+    validate_json_path,
+    validate_positive_float,
+    validate_positive_int,
+    validate_query_text,
+)
+from lsiee.security.verification import verify_lsiee_runtime
 from lsiee.storage.metadata_db import MetadataDB
 from lsiee.storage.schemas import initialize_database
 from lsiee.system_observability.detection import AlertManager, AnomalyDetector
@@ -32,9 +51,24 @@ from lsiee.system_observability.monitoring import (
 )
 from lsiee.temporal_intelligence.explanation import RootCauseAnalyzer
 from lsiee.temporal_intelligence.explanation.root_cause import parse_issue_timestamp
+from lsiee.utils.logging_utils import setup_logging
 
 console = Console()
-logging.basicConfig(level=logging.INFO)
+
+
+def _safe(value, *, max_length: int = 4096, single_line: bool = True) -> str:
+    """Escape terminal text for Rich output."""
+    return safe_rich_text(value, max_length=max_length, single_line=single_line)
+
+
+def _safe_path(path) -> str:
+    """Render a path through the redaction and terminal-safety pipeline."""
+    return _safe(display_path(path))
+
+
+def _print_json(value) -> None:
+    """Render JSON after recursively stripping terminal control sequences."""
+    console.print(JSON.from_data(sanitize_terminal_data(value)))
 
 
 @click.group()
@@ -45,7 +79,7 @@ def main():
     A local-first system intelligence platform for understanding
     and interacting with your operating system.
     """
-    pass
+    setup_logging(level=getattr(logging, str(config.get("logging.level", "WARNING")).upper()))
 
 
 @main.command()
@@ -54,9 +88,13 @@ def main():
 @click.option("--no-progress", is_flag=True, help="Disable progress bar")
 def index(directory, force, no_progress):
     """Index files in a directory."""
-    directory_path = Path(directory).absolute()
+    try:
+        directory_path = ensure_safe_directory(Path(directory))
+    except PathSecurityError:
+        console.print("[red]✗ Error:[/red] Access denied or invalid directory")
+        raise click.Abort()
 
-    console.print(f"[blue]Indexing:[/blue] {directory_path}")
+    console.print(f"[blue]Indexing:[/blue] {_safe_path(directory_path)}")
     console.print()
 
     try:
@@ -90,6 +128,9 @@ def index(directory, force, no_progress):
         table.add_row("Files Updated", str(stats["files_updated"]))
         table.add_row("Files Unchanged", str(stats.get("files_unchanged", 0)))
         table.add_row("Files Skipped", str(stats["files_skipped"]))
+        table.add_row("Permission Denied", str(stats.get("permission_denied", 0)))
+        table.add_row("Too Large", str(stats.get("too_large", 0)))
+        table.add_row("Unsafe Paths", str(stats.get("unsafe_paths", 0)))
         table.add_row("Search Indexed", str(search_indexed))
         table.add_row("Errors", str(stats["errors"]))
 
@@ -102,8 +143,8 @@ def index(directory, force, no_progress):
             indexed_dirs.append(str(directory_path))
             config.set("index.directories", indexed_dirs)
 
-    except Exception as e:
-        console.print(f"[red]✗ Error:[/red] {e}")
+    except Exception:
+        console.print("[red]✗ Error:[/red] Indexing failed")
         raise click.Abort()
 
 
@@ -123,7 +164,9 @@ def status():
     with MetadataDB(db_path) as db:
         stats = db.get_stats()
 
-    console.print(f"[green]✓[/green] Database: {db_path}")
+    console.print(f"[green]✓[/green] Database: {_safe_path(db_path)}")
+    console.print(f"[green]✓[/green] Data Directory: {_safe_path(get_data_dir())}")
+    console.print("[dim]All LSIEE data remains local to this computer.[/dim]")
     console.print()
 
     # Display stats table
@@ -133,10 +176,25 @@ def status():
 
     table.add_row("Total Files", str(stats["total_files"]))
     table.add_row("Indexed Files", str(stats["indexed_count"]))
+    table.add_row("Pending Files", str(stats["pending_count"]))
+    table.add_row("Skipped Files", str(stats["skipped_count"]))
     table.add_row("Failed Files", str(stats["failed_count"]))
     table.add_row("Total Size", f"{stats['total_size_bytes'] / (1024**3):.2f} GB")
 
     console.print(table)
+    console.print()
+
+    vector_stats = SemanticSearch(
+        db_path=db_path,
+        vector_db_path=get_vector_db_path(),
+    ).vector_db.get_diagnostics()
+    search_table = Table(title="Search Index")
+    search_table.add_column("Metric", style="cyan")
+    search_table.add_column("Value", style="magenta", justify="right")
+    search_table.add_row("Stored Vectors", str(vector_stats["vector_count"]))
+    search_table.add_row("Consistent", "Yes" if vector_stats["is_consistent"] else "No")
+    search_table.add_row("Vectors File", _safe_path(vector_stats["vectors_file"]))
+    console.print(search_table)
     console.print()
 
     # Show indexed directories
@@ -144,9 +202,45 @@ def status():
     if indexed_dirs:
         console.print("[bold]Indexed Directories:[/bold]")
         for dir_path in indexed_dirs:
-            console.print(f"  • {dir_path}")
+            console.print(f"  • {_safe_path(dir_path)}")
     else:
         console.print("[dim]No directories indexed yet[/dim]")
+
+
+@main.command()
+def verify():
+    """Verify LSIEE local state, database integrity, and search consistency."""
+    report = verify_lsiee_runtime(
+        db_path=get_db_path(),
+        vector_db_path=get_vector_db_path(),
+        config_file=config.config_file,
+        log_dir=get_data_dir() / "logs",
+    )
+
+    table = Table(title="Verification Report")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="magenta")
+    table.add_column("Details", style="white")
+
+    for check in report["checks"]:
+        status_text = "[green]PASS[/green]" if check["ok"] else "[red]FAIL[/red]"
+        table.add_row(
+            sanitize_terminal_text(check["name"]),
+            status_text,
+            sanitize_terminal_text(check["details"], max_length=256, single_line=False),
+        )
+
+    console.print(table)
+    console.print()
+
+    if report["ok"]:
+        console.print(f"[green]✓ Verification passed[/green] " f"({report['passed_count']} checks)")
+        return
+
+    console.print(
+        f"[red]✗ Verification failed[/red] " f"({report['failed_count']} failing check(s))"
+    )
+    raise click.Abort()
 
 
 @main.command()
@@ -154,7 +248,18 @@ def status():
 @click.option("--max-results", default=10, help="Maximum results")
 def search(query, max_results):
     """Search files by semantic meaning."""
-    console.print(f"[blue]Searching for:[/blue] {query}")
+    try:
+        query = validate_query_text(
+            query,
+            max_length=int(config.get("security.max_query_length", 500)),
+            max_conditions=int(config.get("security.max_query_conditions", 3)),
+        )
+        max_results = validate_positive_int(max_results, name="max_results", maximum=1000)
+    except ValueError as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
+
+    console.print(f"[blue]Searching for:[/blue] {_safe(query)}")
     console.print()
 
     searcher = SemanticSearch(
@@ -164,14 +269,37 @@ def search(query, max_results):
     results = searcher.search(query, max_results=max_results)
 
     if not results:
-        console.print("[yellow]No results found[/yellow]")
+        with MetadataDB(get_db_path()) as db:
+            stats = db.get_stats()
+        diagnostics = searcher.vector_db.get_diagnostics()
+
+        if stats["indexed_count"] == 0 and stats["pending_count"] > 0:
+            console.print(
+                "[yellow]Search index is incomplete. "
+                "Re-run indexing with --force to rebuild it.[/yellow]"
+            )
+        elif stats["indexed_count"] == 0 and stats["skipped_count"] > 0:
+            console.print(
+                "[yellow]No searchable files were indexed. "
+                "Current files were skipped as unsupported or non-text.[/yellow]"
+            )
+        elif (
+            not diagnostics["is_consistent"]
+            or diagnostics["vector_count"] != stats["indexed_count"]
+        ):
+            console.print(
+                "[yellow]Search index integrity check failed. "
+                "Re-run indexing with --force to repair it.[/yellow]"
+            )
+        else:
+            console.print("[yellow]No matches found. Try different search terms.[/yellow]")
         return
 
     for i, result in enumerate(results, 1):
-        console.print(f"[bold]{i}. {result['metadata']['filename']}[/bold]")
-        console.print(f"   Path: {result['file_path']}")
+        console.print(f"[bold]{i}. {_safe(result['metadata']['filename'])}[/bold]")
+        console.print(f"   Path: {_safe_path(result['file_path'])}")
         console.print(f"   Similarity: {result['similarity']:.2%}")
-        console.print(f"   Snippet: {result['snippet']}...")
+        console.print(f"   Snippet: {_safe(result['snippet'], max_length=240)}...")
         console.print()
 
 
@@ -181,19 +309,27 @@ def search(query, max_results):
 @click.option("--json-path", "json_path", default=None, help="Extract a value from a JSON path")
 def inspect(filepath, sheet, json_path):
     """Inspect structured file contents."""
-    filepath = Path(filepath)
+    try:
+        filepath = ensure_safe_file(
+            Path(filepath),
+            max_size_bytes=int(config.get("security.max_parse_file_size_mb", 100) * 1024 * 1024),
+        )
+        json_path = validate_json_path(json_path)
+    except (PathSecurityError, ValueError):
+        console.print("[red]✗ Error:[/red] Access denied or invalid file")
+        raise click.Abort()
     extension = filepath.suffix.lower()
     parser = StructuredDataParser()
     detector = SchemaDetector()
 
-    console.print(f"[blue]Inspecting:[/blue] {filepath}")
+    console.print(f"[blue]Inspecting:[/blue] {_safe_path(filepath)}")
     console.print()
 
     if extension == ".csv":
         data = parser.parse_csv(filepath)
         schema = detector.detect_csv_schema(filepath)
         if "error" in data:
-            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            console.print(f"[red]✗ Error:[/red] {_safe(data['error'])}")
             raise click.Abort()
 
         console.print("[green]CSV File[/green]")
@@ -206,12 +342,12 @@ def inspect(filepath, sheet, json_path):
     if extension in [".xlsx", ".xls"]:
         data = parser.parse_excel(filepath, sheet_name=sheet)
         if "error" in data:
-            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            console.print(f"[red]✗ Error:[/red] {_safe(data['error'])}")
             raise click.Abort()
 
         if sheet:
             schemas = detector.detect_excel_schema(filepath, sheet_name=sheet)
-            console.print(f"[green]Excel Sheet:[/green] {sheet}")
+            console.print(f"[green]Excel Sheet:[/green] {_safe(sheet)}")
             console.print(f"Rows: {data['row_count']}")
             console.print(f"Columns: {data['column_count']}")
             console.print()
@@ -226,14 +362,18 @@ def inspect(filepath, sheet, json_path):
         table.add_column("Rows", style="magenta", justify="right")
         table.add_column("Columns", style="yellow", justify="right")
         for sheet_name, info in data["sheets"].items():
-            table.add_row(sheet_name, str(info["row_count"]), str(info["column_count"]))
+            table.add_row(
+                sanitize_terminal_text(sheet_name),
+                str(info["row_count"]),
+                str(info["column_count"]),
+            )
         console.print(table)
         return
 
     if extension == ".json":
         data = parser.parse_json(filepath)
         if "error" in data:
-            console.print(f"[red]✗ Error:[/red] {data['error']}")
+            console.print(f"[red]✗ Error:[/red] {_safe(data['error'])}")
             raise click.Abort()
 
         console.print("[green]JSON File[/green]")
@@ -241,19 +381,23 @@ def inspect(filepath, sheet, json_path):
         console.print()
 
         if json_path:
-            extracted = parser.extract_json_path(filepath, json_path)
-            console.print(f"[bold]JSON Path:[/bold] {json_path}")
-            console.print(JSON.from_data(extracted))
+            try:
+                extracted = parser.extract_json_path(filepath, json_path)
+            except Exception:
+                console.print("[red]✗ Error:[/red] Invalid JSON path")
+                raise click.Abort()
+            console.print(f"[bold]JSON Path:[/bold] {_safe(json_path)}")
+            _print_json(extracted)
             return
 
         console.print("[bold]Structure:[/bold]")
-        console.print(JSON.from_data(data["structure"]))
+        _print_json(data["structure"])
         console.print()
         console.print("[bold]Sample:[/bold]")
-        console.print(data["sample"])
+        _print_json(data["sample"])
         return
 
-    console.print(f"[yellow]Unsupported file type: {extension}[/yellow]")
+    console.print(f"[yellow]Unsupported file type: {_safe(extension)}[/yellow]")
 
 
 def _print_schema_table(schema, title="Schema"):
@@ -266,8 +410,8 @@ def _print_schema_table(schema, title="Schema"):
 
     for column in schema:
         table.add_row(
-            str(column["column_name"]),
-            str(column["column_type"]),
+            sanitize_terminal_text(column["column_name"]),
+            sanitize_terminal_text(column["column_type"]),
             str(column["null_count"]),
             str(column["unique_count"]),
         )
@@ -283,15 +427,29 @@ def query(filepath, query, export):
     """Query structured data files using natural language."""
     executor = QueryExecutor()
     formatter = ResultFormatter()
-    filepath = Path(filepath)
+    try:
+        filepath = ensure_safe_file(
+            Path(filepath),
+            max_size_bytes=int(config.get("security.max_parse_file_size_mb", 100) * 1024 * 1024),
+        )
+        query = validate_query_text(
+            query,
+            max_length=int(config.get("security.max_query_length", 500)),
+            max_conditions=int(config.get("security.max_query_conditions", 3)),
+        )
+        if export:
+            ensure_safe_output_path(Path(export))
+    except (PathSecurityError, ValueError) as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
 
-    console.print(f"[blue]Querying:[/blue] {filepath}")
-    console.print(f"[blue]Query:[/blue] {query}")
+    console.print(f"[blue]Querying:[/blue] {_safe_path(filepath)}")
+    console.print(f"[blue]Query:[/blue] {_safe(query)}")
     console.print()
 
     result = executor.execute_query_safe(filepath, query)
     if "error" in result:
-        console.print(f"[red]✗ Error:[/red] {result['error']}")
+        console.print(f"[red]✗ Error:[/red] {_safe(result['error'])}")
         raise click.Abort()
 
     console.print("[green]Results:[/green]")
@@ -300,16 +458,149 @@ def query(filepath, query, export):
     if isinstance(payload, (int, float)):
         console.print(payload)
     elif isinstance(payload, dict):
-        console.print(JSON.from_data(payload))
+        _print_json(payload)
     else:
         console.print(formatter.format_table(payload))
 
     if export:
-        export_path = Path(export)
+        export_path = ensure_safe_output_path(Path(export))
         export_format = "json" if export_path.suffix.lower() == ".json" else "csv"
         formatter.export_to_file(payload, export_path, format=export_format)
         console.print()
-        console.print(f"[green]Exported to:[/green] {export_path}")
+        console.print(f"[green]Exported to:[/green] {_safe_path(export_path)}")
+
+
+@main.command(name="export")
+@click.option(
+    "--format",
+    "export_format",
+    type=click.Choice(["json", "csv"], case_sensitive=False),
+    default="json",
+    show_default=True,
+    help="Export JSON or a ZIP bundle of CSV files.",
+)
+@click.option("--output", type=click.Path(), required=True, help="Destination export file")
+def export_data(export_format, output):
+    """Export local LSIEE data for review or portability."""
+    try:
+        summary = export_lsiee_data(
+            db_path=get_db_path(),
+            vector_db_path=get_vector_db_path(),
+            config_file=config.config_file,
+            output_path=Path(output),
+            format=export_format.lower(),
+        )
+    except (PathSecurityError, ValueError) as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
+
+    console.print(f"[green]✓ Export complete[/green] {_safe_path(summary['output_path'])}")
+    table = Table(title="Export Summary")
+    table.add_column("Dataset", style="cyan")
+    table.add_column("Rows", style="magenta", justify="right")
+    for key, value in summary["counts"].items():
+        table.add_row(sanitize_terminal_text(key), str(value))
+    console.print(table)
+
+
+@main.command()
+@click.option(
+    "--type",
+    "cleanup_type",
+    type=click.Choice(["process-snapshots", "events", "all"], case_sensitive=False),
+    default="all",
+    show_default=True,
+)
+@click.option("--older-than", "older_than", type=int, default=None, help="Retention window in days")
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted")
+@click.option("--yes", is_flag=True, help="Skip the interactive confirmation prompt")
+def cleanup(cleanup_type, older_than, dry_run, yes):
+    """Delete aged local monitoring or event data."""
+    try:
+        older_than_days = (
+            validate_positive_int(older_than, name="older_than", maximum=3650)
+            if older_than is not None
+            else None
+        )
+    except ValueError as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
+
+    preview = cleanup_lsiee_data(
+        db_path=get_db_path(),
+        data_type=cleanup_type,
+        older_than_days=older_than_days,
+        dry_run=True,
+    )
+    matched_rows = sum(plan["matched_rows"] for plan in preview["plans"])
+
+    if matched_rows == 0:
+        console.print("[yellow]No matching data met the cleanup criteria.[/yellow]")
+        return
+
+    table = Table(title="Cleanup Preview" if dry_run else "Cleanup Targets")
+    table.add_column("Table", style="cyan")
+    table.add_column("Rows", style="magenta", justify="right")
+    table.add_column("Oldest", style="yellow")
+    table.add_column("Newest", style="green")
+
+    for plan in preview["plans"]:
+        oldest = (
+            datetime.fromtimestamp(plan["oldest_timestamp"]).isoformat(timespec="seconds")
+            if plan["oldest_timestamp"]
+            else "-"
+        )
+        newest = (
+            datetime.fromtimestamp(plan["newest_timestamp"]).isoformat(timespec="seconds")
+            if plan["newest_timestamp"]
+            else "-"
+        )
+        table.add_row(
+            sanitize_terminal_text(plan["table"]),
+            str(plan["matched_rows"]),
+            sanitize_terminal_text(oldest),
+            sanitize_terminal_text(newest),
+        )
+    console.print(table)
+
+    if dry_run:
+        return
+
+    if not yes:
+        click.confirm(f"Delete {matched_rows} row(s) from local LSIEE data?", abort=True)
+
+    summary = cleanup_lsiee_data(
+        db_path=get_db_path(),
+        data_type=cleanup_type,
+        older_than_days=older_than_days,
+        dry_run=False,
+    )
+    console.print(f"[green]✓ Cleanup complete[/green] Deleted {summary['deleted_rows']} row(s)")
+
+
+@main.command(name="delete-all-data")
+@click.option("--confirm", "confirm_token", default="", help="Type DELETE to confirm")
+def delete_all_data(confirm_token):
+    """Permanently remove LSIEE local databases, vectors, config, and logs."""
+    if confirm_token != "DELETE":
+        console.print("[red]✗ Error:[/red] This operation requires `--confirm DELETE`.")
+        raise click.Abort()
+
+    try:
+        summary = purge_lsiee_data(
+            db_path=get_db_path(),
+            vector_db_path=get_vector_db_path(),
+            config_file=config.config_file,
+            log_dir=get_data_dir() / "logs",
+        )
+    except (PathSecurityError, ValueError) as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
+
+    config._config = config._default_config()
+    console.print(f"[green]✓ Deleted {len(summary['removed'])} LSIEE artifact(s)[/green]")
+    for path in summary["removed"]:
+        console.print(f"  • {_safe_path(path)}")
 
 
 @main.command()
@@ -351,6 +642,31 @@ def monitor(
     iterations,
 ):
     """Monitor system processes and resource usage."""
+    try:
+        hours = validate_positive_int(hours, name="hours", maximum=24 * 365)
+        limit = validate_positive_int(limit, name="limit", maximum=1000)
+        if iterations is not None:
+            iterations = validate_positive_int(iterations, name="iterations", maximum=100000)
+        if interval is not None:
+            interval = validate_positive_float(
+                interval,
+                name="interval",
+                minimum=0.01,
+                maximum=3600.0,
+            )
+        if process_name:
+            process_name = validate_generic_text(process_name, name="process_name", max_length=128)
+        if timeline:
+            timeline = validate_generic_text(
+                timeline,
+                name="timeline",
+                max_length=128,
+                reject_shell_metacharacters=True,
+            )
+    except ValueError as exc:
+        console.print(f"[red]✗ Error:[/red] {_safe(exc)}")
+        raise click.Abort()
+
     db_path = get_db_path()
     process_monitor = ProcessMonitor()
     history = ProcessHistory(db_path)
@@ -365,7 +681,8 @@ def monitor(
             daemon = MonitoringDaemon(db_path=db_path, interval=interval)
             daemon.start(blocking=True, iterations=iterations)
             console.print(
-                f"[green]✓ Collected {iterations} monitoring iteration(s) into {db_path}[/green]"
+                "[green]✓ Collected "
+                f"{iterations} monitoring iteration(s) into {_safe_path(db_path)}[/green]"
             )
             return
 
@@ -390,8 +707,8 @@ def monitor(
         table.add_column("Value", style="magenta")
         table.add_row("State", "Running" if status_info["running"] else "Stopped")
         table.add_row("PID", str(status_info["pid"] or "-"))
-        table.add_row("DB Path", status_info["db_path"])
-        table.add_row("PID File", status_info["pid_path"])
+        table.add_row("DB Path", _safe_path(status_info["db_path"]))
+        table.add_row("PID File", _safe_path(status_info["pid_path"]))
         table.add_row("Interval (s)", str(status_info["interval_seconds"]))
         console.print(table)
         return
@@ -414,9 +731,11 @@ def monitor(
     if process_name:
         matches = process_monitor.get_process_by_name(process_name)[:limit]
         if not matches:
-            console.print(f"[yellow]No running processes matched '{process_name}'[/yellow]")
+            console.print(f"[yellow]No running processes matched '{_safe(process_name)}'[/yellow]")
             return
-        _print_process_table(matches, title=f"Processes Matching '{process_name}'")
+        _print_process_table(
+            matches, title=f"Processes Matching '{sanitize_terminal_text(process_name)}'"
+        )
         return
 
     if history_pid is not None:
@@ -432,9 +751,11 @@ def monitor(
     if timeline:
         rows = history.get_cpu_timeline(timeline, hours=hours)
         if not rows:
-            console.print(f"[yellow]No stored CPU timeline found for '{timeline}'[/yellow]")
+            console.print(f"[yellow]No stored CPU timeline found for '{_safe(timeline)}'[/yellow]")
             return
-        _print_timeline_table(rows[:limit], title=f"CPU Timeline: {timeline}")
+        _print_timeline_table(
+            rows[:limit], title=f"CPU Timeline: {sanitize_terminal_text(timeline)}"
+        )
         return
 
     if detect_anomalies:
@@ -510,13 +831,14 @@ def explain(issue, issue_time):
     analyzer = RootCauseAnalyzer(db_path=get_db_path())
 
     try:
+        issue = validate_generic_text(issue, name="issue", max_length=256)
         timestamp = parse_issue_timestamp(issue_time)
         explanation = analyzer.explain_issue(issue, timestamp)
     except ValueError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {_safe(exc)}")
         raise click.Abort() from exc
 
-    console.print(f"[bold]Issue:[/bold] {explanation['issue']}")
+    console.print(f"[bold]Issue:[/bold] {_safe(explanation['issue'])}")
     console.print(
         "[bold]Time:[/bold] "
         f"{datetime.fromtimestamp(explanation['timestamp']).isoformat(timespec='seconds')}"
@@ -525,7 +847,7 @@ def explain(issue, issue_time):
 
     console.print("[bold]Root Causes:[/bold]")
     for cause in explanation["root_causes"]:
-        console.print(f"  - {cause}")
+        console.print(f"  - {_safe(cause)}")
     console.print()
 
     console.print("[bold]Evidence:[/bold]")
@@ -538,17 +860,19 @@ def explain(issue, issue_time):
             count = len(evidence.get("correlations", []))
         else:
             count = len(evidence.get("occurrences", []))
-        console.print(f"  - {evidence['type']}: {count} item(s)")
+        console.print(f"  - {_safe(evidence['type'])}: {count} item(s)")
     console.print()
 
     console.print("[bold]Recommendations:[/bold]")
     for recommendation in explanation["recommendations"]:
-        console.print(f"  - {recommendation}")
+        console.print(f"  - {_safe(recommendation)}")
+    console.print()
+    console.print(f"[dim]{_safe(explanation['disclaimer'])}[/dim]")
 
 
 def _print_process_table(processes, title):
     """Render a process list as a Rich table."""
-    table = Table(title=title)
+    table = Table(title=sanitize_terminal_text(title))
     table.add_column("PID", style="cyan", justify="right")
     table.add_column("Name", style="yellow")
     table.add_column("CPU %", style="magenta", justify="right")
@@ -559,10 +883,10 @@ def _print_process_table(processes, title):
     for proc in processes:
         table.add_row(
             str(proc["pid"]),
-            str(proc["name"]),
+            sanitize_terminal_text(proc["name"]),
             f"{proc['cpu_percent']:.2f}",
             f"{proc['memory_mb']:.2f}",
-            str(proc["status"]),
+            sanitize_terminal_text(proc["status"]),
             str(proc["num_threads"]),
         )
 
@@ -607,7 +931,7 @@ def _print_system_metrics(metrics):
     disk.add_column("Free GB", style="green", justify="right")
     for partition in metrics["disk"]["partitions"]:
         disk.add_row(
-            partition["mountpoint"],
+            sanitize_terminal_text(partition["mountpoint"]),
             f"{partition['percent']:.2f}",
             f"{partition['used_gb']:.2f}",
             f"{partition['free_gb']:.2f}",
@@ -617,7 +941,7 @@ def _print_system_metrics(metrics):
 
 def _print_history_table(rows, title):
     """Render stored process history rows."""
-    table = Table(title=title)
+    table = Table(title=sanitize_terminal_text(title))
     table.add_column("Timestamp", style="cyan")
     table.add_column("PID", style="yellow", justify="right")
     table.add_column("Name", style="magenta")
@@ -629,10 +953,10 @@ def _print_history_table(rows, title):
         table.add_row(
             datetime.fromtimestamp(row["timestamp"]).isoformat(timespec="seconds"),
             str(row["pid"]),
-            str(row["name"]),
+            sanitize_terminal_text(row["name"]),
             f"{row['cpu_percent']:.2f}",
             f"{row['memory_mb']:.2f}",
-            str(row["status"]),
+            sanitize_terminal_text(row["status"]),
         )
 
     console.print(table)
@@ -640,7 +964,7 @@ def _print_history_table(rows, title):
 
 def _print_timeline_table(rows, title):
     """Render CPU timeline points."""
-    table = Table(title=title)
+    table = Table(title=sanitize_terminal_text(title))
     table.add_column("Timestamp", style="cyan")
     table.add_column("CPU %", style="magenta", justify="right")
 
@@ -655,7 +979,7 @@ def _print_timeline_table(rows, title):
 
 def _print_anomaly_table(rows, title):
     """Render anomaly detection results."""
-    table = Table(title=title)
+    table = Table(title=sanitize_terminal_text(title))
     table.add_column("PID", style="cyan", justify="right")
     table.add_column("Process", style="yellow")
     table.add_column("Score", style="magenta", justify="right")
@@ -666,7 +990,7 @@ def _print_anomaly_table(rows, title):
     for row in rows:
         table.add_row(
             str(row["pid"]),
-            str(row["process_name"]),
+            sanitize_terminal_text(row["process_name"]),
             f"{row['anomaly_score']:.4f}",
             f"{row['cpu_percent']:.2f}",
             f"{row['memory_mb']:.2f}",
@@ -678,7 +1002,7 @@ def _print_anomaly_table(rows, title):
 
 def _print_alert_table(rows, title):
     """Render recent alert history rows."""
-    table = Table(title=title)
+    table = Table(title=sanitize_terminal_text(title))
     table.add_column("Timestamp", style="cyan")
     table.add_column("Event", style="yellow")
     table.add_column("Severity", style="magenta")
@@ -688,10 +1012,10 @@ def _print_alert_table(rows, title):
     for row in rows:
         table.add_row(
             datetime.fromtimestamp(row["timestamp"]).isoformat(timespec="seconds"),
-            str(row["event_type"]),
-            str(row["severity"]),
-            str(row.get("process_name") or "-"),
-            str(row.get("message") or "-"),
+            sanitize_terminal_text(row["event_type"]),
+            sanitize_terminal_text(row["severity"]),
+            sanitize_terminal_text(row.get("process_name") or "-"),
+            sanitize_terminal_text(row.get("message") or "-", max_length=256),
         )
 
     console.print(table)

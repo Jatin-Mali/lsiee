@@ -7,6 +7,7 @@
 ```bash
 venv/bin/python -m lsiee index ~/Documents
 venv/bin/python -m lsiee status
+venv/bin/python -m lsiee verify
 ```
 
 Use `--force` when you need a full metadata refresh.
@@ -45,6 +46,10 @@ Supported operations include:
 - min
 - sort
 
+### Exporting Query Results
+
+Use `--export` for structured query output, or use the dedicated `export` command to review all LSIEE-managed local data.
+
 ### 5. Collect Monitoring Data
 
 ```bash
@@ -78,12 +83,24 @@ The explanation engine combines:
 - stored correlations
 - historical recurrence
 
+### 8. Export Or Delete Local LSIEE Data
+
+```bash
+venv/bin/python -m lsiee export --format json --output /tmp/lsiee-export.json
+venv/bin/python -m lsiee export --format csv --output /tmp/lsiee-export.zip
+venv/bin/python -m lsiee cleanup --dry-run
+venv/bin/python -m lsiee delete-all-data --confirm DELETE
+```
+
+Review [PRIVACY.md](PRIVACY.md) for data categories and retention defaults.
+
 ## Troubleshooting
 
 ### No Search Results
 
 - Run `index` again after adding files.
 - Confirm the file type contains extractable text.
+- Run `verify` to check for vector-store drift or database inconsistencies.
 - Check `status` for failed files.
 
 ### Not Enough Data For Anomaly Detection

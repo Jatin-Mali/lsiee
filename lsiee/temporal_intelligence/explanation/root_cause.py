@@ -273,6 +273,10 @@ class RootCauseAnalyzer:
             "evidence": [],
             "root_causes": [],
             "recommendations": [],
+            "disclaimer": (
+                "These findings are correlations and heuristics from local history, "
+                "not proven causation."
+            ),
         }
 
         process_metrics = evidence_bundle["process_metrics"]
@@ -283,12 +287,13 @@ class RootCauseAnalyzer:
             hottest = process_metrics[0]
             if float(hottest.get("max_cpu", 0.0) or 0.0) >= 50.0:
                 explanation["root_causes"].append(
-                    f"High CPU usage from {hottest['name']} (peak {hottest['max_cpu']:.1f}%)"
+                    f"High CPU usage may be related to {hottest['name']} "
+                    f"(observed peak {hottest['max_cpu']:.1f}%)"
                 )
             if float(hottest.get("max_memory_percent", 0.0) or 0.0) >= 80.0:
                 explanation["root_causes"].append(
-                    "High memory pressure from "
-                    f"{hottest['name']} (peak {hottest['max_memory_percent']:.1f}%)"
+                    "High memory pressure may be related to "
+                    f"{hottest['name']} (observed peak {hottest['max_memory_percent']:.1f}%)"
                 )
 
         events = evidence_bundle["events"]
@@ -301,7 +306,7 @@ class RootCauseAnalyzer:
                 counts = Counter(event["event_type"] for event in important_events)
                 dominant_event, occurrences = counts.most_common(1)[0]
                 explanation["root_causes"].append(
-                    "Warning-level activity included "
+                    "Warning-level activity nearby may be relevant: "
                     f"{dominant_event} ({occurrences} nearby event(s))"
                 )
 
@@ -310,9 +315,9 @@ class RootCauseAnalyzer:
             explanation["evidence"].append({"type": "correlations", "correlations": correlations})
             strongest = correlations[0]
             explanation["root_causes"].append(
-                "Known correlation observed between "
+                "A historical correlation may be relevant between "
                 f"{strongest['event_type_a']} and {strongest['event_type_b']} "
-                f"(lift {strongest['lift']:.2f})"
+                f"(confidence {strongest['confidence']:.2f}, lift {strongest['lift']:.2f})"
             )
 
         historical = evidence_bundle["historical"]

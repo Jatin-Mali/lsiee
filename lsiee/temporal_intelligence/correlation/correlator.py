@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from lsiee.config import get_db_path
-from lsiee.storage.schemas import configure_connection, initialize_database
+from lsiee.storage.schemas import configure_connection, execute_with_retry, initialize_database
+from lsiee.temporal_intelligence.events import EventLogger
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class EventCorrelator:
         self.db_path = Path(db_path) if db_path else get_db_path()
         schema = initialize_database(self.db_path)
         schema.disconnect()
+        self.event_logger = EventLogger(self.db_path)
 
     def find_correlations(
         self,
@@ -111,7 +113,8 @@ class EventCorrelator:
 
         with sqlite3.connect(self.db_path) as conn:
             configure_connection(conn)
-            conn.executemany(
+            execute_with_retry(
+                conn,
                 """
                 INSERT INTO correlations
                 (event_type_a, event_type_b, support, confidence, lift,
@@ -126,8 +129,10 @@ class EventCorrelator:
                     avg_delay_seconds = excluded.avg_delay_seconds
                 """,
                 rows,
+                many=True,
+                commit=True,
+                db_path=self.db_path,
             )
-            conn.commit()
 
         return len(rows)
 
@@ -155,8 +160,14 @@ class EventCorrelator:
         with sqlite3.connect(self.db_path) as conn:
             configure_connection(conn)
             cursor = conn.execute("""
-                SELECT timestamp, event_type, source
+                SELECT id, timestamp, event_type, source, data, related_process_id,
+                       related_file_id, severity, tags, created_at, checksum
                 FROM events
-                ORDER BY timestamp
+                ORDER BY timestamp, id
                 """)
-            return [dict(row) for row in cursor.fetchall()]
+            events = []
+            for row in cursor.fetchall():
+                parsed = self.event_logger._deserialize_row(dict(row))
+                if parsed["integrity_valid"]:
+                    events.append(parsed)
+            return events

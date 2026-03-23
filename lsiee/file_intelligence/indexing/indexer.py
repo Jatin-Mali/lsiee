@@ -19,6 +19,7 @@ class Indexer:
         self.db_path = db_path or get_db_path()
         self.scanner = DirectoryScanner(
             excluded_patterns=config.get("index.excluded_patterns"),
+            excluded_directories=config.get("index.excluded_directories"),
             max_file_size_mb=config.get("index.max_file_size_mb", 50),
         )
         self._event_logger = None

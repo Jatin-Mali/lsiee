@@ -1,10 +1,18 @@
 """Extract metadata from files."""
 
 import hashlib
+import logging
 import mimetypes
+import os
+import stat
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from lsiee.config import config
+from lsiee.security import PathSecurityError, ensure_safe_file
+
+logger = logging.getLogger(__name__)
 
 
 class FileMetadata:
@@ -47,18 +55,20 @@ def extract_metadata(filepath: Path, calculate_hash: bool = False) -> Optional[F
         FileMetadata or None if inaccessible
     """
     try:
-        stats = filepath.stat()
-        mime_type, _ = mimetypes.guess_type(str(filepath))
+        safe_path = ensure_safe_file(filepath)
+        stats = safe_path.lstat()
+        mime_type, _ = mimetypes.guess_type(str(safe_path))
 
         # Calculate hash only for small files
         content_hash = None
-        if calculate_hash and stats.st_size < 50 * 1024 * 1024:  # < 50MB
-            content_hash = calculate_file_hash(filepath)
+        max_hash_bytes = int(config.get("security.max_index_file_size_mb", 50) * 1024 * 1024)
+        if calculate_hash and stats.st_size <= max_hash_bytes:
+            content_hash = calculate_file_hash(safe_path)
 
         return FileMetadata(
-            path=filepath,
-            filename=filepath.name,
-            extension=filepath.suffix.lstrip(".").lower() if filepath.suffix else "",
+            path=safe_path,
+            filename=safe_path.name,
+            extension=safe_path.suffix.lstrip(".").lower() if safe_path.suffix else "",
             mime_type=mime_type,
             size_bytes=stats.st_size,
             created_at=datetime.fromtimestamp(stats.st_ctime),
@@ -67,17 +77,31 @@ def extract_metadata(filepath: Path, calculate_hash: bool = False) -> Optional[F
             content_hash=content_hash,
         )
 
-    except (PermissionError, FileNotFoundError, OSError) as e:
-        print(f"Warning: Could not access {filepath}: {e}")
+    except (PathSecurityError, PermissionError, FileNotFoundError, OSError) as exc:
+        logger.warning("Could not access file metadata for %s: %s", filepath.name, exc)
         return None
 
 
 def calculate_file_hash(filepath: Path) -> str:
     """Calculate SHA256 hash."""
     sha256_hash = hashlib.sha256()
+    safe_path = ensure_safe_file(filepath)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
 
-    with open(filepath, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
+    fd = os.open(safe_path, flags)
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise PathSecurityError("Only regular files are supported")
+
+        with os.fdopen(fd, "rb") as handle:
+            fd = None
+            for byte_block in iter(lambda: handle.read(4096), b""):
+                sha256_hash.update(byte_block)
+    finally:
+        if fd is not None:
+            os.close(fd)
 
     return sha256_hash.hexdigest()

@@ -112,6 +112,7 @@ def test_root_cause_analyzer_explains_slowdown(tmp_path):
     assert explanation["root_causes"]
     assert any("backup.exe" in cause for cause in explanation["root_causes"])
     assert explanation["recommendations"]
+    assert "not proven causation" in explanation["disclaimer"].lower()
     evidence_types = {item["type"] for item in explanation["evidence"]}
     assert {"process_metrics", "events", "historical"}.issubset(evidence_types)
 
